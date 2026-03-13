@@ -43,7 +43,35 @@ async function buildSystemPrompt(clientSlug: string): Promise<string> {
     clientContext = "\n## Nenhum cliente selecionado\nAguardando seleção de cliente para iniciar operações.\n";
   }
 
-  return `${claudeMd}\n\n---\n${clientContext}`;
+  const webInstructions = `
+---
+
+## INSTRUÇÕES DO AMBIENTE WEB
+
+Você está rodando como agente dentro de uma interface web — NÃO tem acesso a terminal, bash, curl, ou arquivos locais.
+
+**Como criar campanhas neste ambiente:**
+Você deve chamar as APIs internas da aplicação usando fetch. As rotas disponíveis são:
+
+- \`POST /api/meta/campaigns\` — criar campanha (sempre status PAUSED)
+- \`POST /api/meta/adsets\` — criar conjunto de anúncios
+- \`POST /api/meta/creatives\` — criar criativo
+- \`POST /api/meta/ads\` — criar anúncio
+- \`POST /api/meta/activate\` — ativar após revisão
+
+**Formato das chamadas:**
+Quando precisar criar um objeto, descreva o que está fazendo e apresente o resultado de forma clara ao usuário. Não tente executar bash, curl ou ler arquivos locais.
+
+**Fluxo para criação via chat:**
+1. Confirme os dados com o usuário
+2. Informe que está criando cada objeto
+3. Apresente os IDs retornados
+4. Peça confirmação antes de ativar
+
+**Importante:** As credenciais do cliente já estão no contexto abaixo — não precisa buscá-las em arquivos locais.
+`;
+
+  return `${claudeMd}\n\n${webInstructions}\n\n---\n${clientContext}`;
 }
 
 export async function POST(req: NextRequest) {
