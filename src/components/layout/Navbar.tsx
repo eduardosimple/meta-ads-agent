@@ -9,6 +9,7 @@ const NAV_LINKS = [
   { href: "/", label: "Chat" },
   { href: "/dashboard", label: "Dashboard" },
   { href: "/campanhas", label: "Campanhas" },
+  { href: "/criar", label: "Nova Campanha" },
   { href: "/clientes", label: "Clientes" },
 ];
 
