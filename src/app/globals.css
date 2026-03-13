@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --meta-blue: #1877f2;
+  --meta-green: #42b72a;
+  --meta-blue-dark: #1565d8;
+  --meta-green-dark: #36a420;
+  --bg-base: #f0f2f5;
+  --card-bg: #ffffff;
+  --text-primary: #1c1e21;
+  --text-secondary: #65676b;
+  --border: #e4e6ea;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Meta gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, var(--meta-blue) 0%, var(--meta-green) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Card */
+.card {
+  background: white;
+  border-radius: 1rem;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.04), 0 1px 2px -1px rgb(0 0 0 / 0.04);
+  border: 1px solid #f3f4f6;
+}
+
+/* Gradient button */
+.btn-gradient {
+  background: linear-gradient(135deg, var(--meta-blue) 0%, var(--meta-green) 100%);
+  color: white;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.btn-gradient:hover {
+  opacity: 0.9;
+}
+.btn-gradient:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

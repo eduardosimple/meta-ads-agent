@@ -2,6 +2,13 @@
 .env
 clients.json
 
+# Next.js
+.next/
+out/
+
+# Node
+node_modules/
+
 # macOS
 .DS_Store
 
@@ -11,3 +18,7 @@ clients.json
 
 # Logs
 *.log
+
+# Build
+dist/
+build/
