@@ -22,6 +22,7 @@ Você é um agente especialista em criação e gestão de campanhas de anúncios
 | `/criar-criativo` | `.claude/skills/criar-criativo/SKILL.md` | Criar criativo (imagem/vídeo + copy) |
 | `/criar-anuncio` | `.claude/skills/criar-anuncio/SKILL.md` | Criar anúncio vinculando campanha, adset e criativo |
 | `/revisar-campanha` | `.claude/skills/revisar-campanha/SKILL.md` | Revisar e aprovar campanha antes de ativar |
+| `/analisar-criativo` | `.claude/skills/analisar-criativo/SKILL.md` | Analisar performance de criativos usando metodologia 12345 + framework de métricas |
 
 ---
 
@@ -50,6 +51,11 @@ O agente deve automaticamente:
 - Nenhuma campanha é ativada sem passar por `/revisar-campanha`
 - O usuário deve confirmar explicitamente antes de qualquer `status: ACTIVE`
 - Em caso de dúvida, pergunte — nunca assuma
+
+**ATIVAR `/analisar-criativo` automaticamente quando o usuário mencionar:**
+- análise de criativo, anúncio, CTR, CPM, CPL, CPC, frequência, hook rate
+- "métricas ruins", "resultado fraco", "otimizar", "o que está errado"
+- qualquer pergunta sobre performance de campanha já no ar
 
 ---
 
