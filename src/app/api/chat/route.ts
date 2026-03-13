@@ -58,47 +58,53 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Mensagem obrigatória" }, { status: 400 });
   }
 
-  const systemPrompt = await buildSystemPrompt(clientSlug ?? "");
+  try {
+    const systemPrompt = await buildSystemPrompt(clientSlug ?? "");
 
-  const messages: Anthropic.MessageParam[] = [
-    ...(history ?? []).map((h: { role: string; content: string }) => ({
-      role: h.role as "user" | "assistant",
-      content: h.content,
-    })),
-    { role: "user" as const, content: message },
-  ];
+    const messages: Anthropic.MessageParam[] = [
+      ...(history ?? []).map((h: { role: string; content: string }) => ({
+        role: h.role as "user" | "assistant",
+        content: h.content,
+      })),
+      { role: "user" as const, content: message },
+    ];
 
-  const stream = await anthropic.messages.stream({
-    model: "claude-opus-4-5",
-    max_tokens: 4096,
-    system: systemPrompt,
-    messages,
-  });
+    const stream = await anthropic.messages.stream({
+      model: "claude-sonnet-4-6",
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages,
+    });
 
-  const encoder = new TextEncoder();
-  const readable = new ReadableStream({
-    async start(controller) {
-      try {
-        for await (const chunk of stream) {
-          if (
-            chunk.type === "content_block_delta" &&
-            chunk.delta.type === "text_delta"
-          ) {
-            controller.enqueue(encoder.encode(chunk.delta.text));
+    const encoder = new TextEncoder();
+    const readable = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const chunk of stream) {
+            if (
+              chunk.type === "content_block_delta" &&
+              chunk.delta.type === "text_delta"
+            ) {
+              controller.enqueue(encoder.encode(chunk.delta.text));
+            }
           }
+          controller.close();
+        } catch (err) {
+          controller.error(err);
         }
-        controller.close();
-      } catch (err) {
-        controller.error(err);
-      }
-    },
-  });
+      },
+    });
 
-  return new NextResponse(readable, {
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Transfer-Encoding": "chunked",
-      "X-Content-Type-Options": "nosniff",
-    },
-  });
+    return new NextResponse(readable, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Transfer-Encoding": "chunked",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Erro interno";
+    console.error("[chat] error:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }
