@@ -69,17 +69,18 @@ export async function POST(req: NextRequest) {
       { role: "user" as const, content: message },
     ];
 
-    const stream = await anthropic.messages.stream({
-      model: "claude-sonnet-4-6",
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages,
-    });
-
+    // Use non-streaming first to validate, then stream
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
       async start(controller) {
         try {
+          const stream = anthropic.messages.stream({
+            model: "claude-sonnet-4-6",
+            max_tokens: 4096,
+            system: systemPrompt,
+            messages,
+          });
+
           for await (const chunk of stream) {
             if (
               chunk.type === "content_block_delta" &&
@@ -90,7 +91,11 @@ export async function POST(req: NextRequest) {
           }
           controller.close();
         } catch (err) {
-          controller.error(err);
+          const msg = err instanceof Error ? err.message : "Erro interno";
+          console.error("[chat] stream error:", msg);
+          // Send error as text in stream instead of controller.error()
+          controller.enqueue(encoder.encode(`\n\n⚠️ Erro: ${msg}`));
+          controller.close();
         }
       },
     });
@@ -98,7 +103,6 @@ export async function POST(req: NextRequest) {
     return new NextResponse(readable, {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
-        "Transfer-Encoding": "chunked",
         "X-Content-Type-Options": "nosniff",
       },
     });
