@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const client = getClientBySlug(clientSlug);
+  const client = await getClientBySlug(clientSlug);
   if (!client) {
     return NextResponse.json({ error: "Cliente não encontrado" }, { status: 404 });
   }
@@ -85,7 +85,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "clientSlug obrigatório" }, { status: 400 });
   }
 
-  const client = getClientBySlug(clientSlug);
+  const client = await getClientBySlug(clientSlug);
   if (!client) {
     return NextResponse.json({ error: "Cliente não encontrado" }, { status: 404 });
   }
@@ -126,7 +126,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Status inválido" }, { status: 400 });
   }
 
-  const client = getClientBySlug(clientSlug);
+  const client = await getClientBySlug(clientSlug);
   if (!client) {
     return NextResponse.json({ error: "Cliente não encontrado" }, { status: 404 });
   }

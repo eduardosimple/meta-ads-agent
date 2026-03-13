@@ -33,9 +33,8 @@ export async function GET(req: NextRequest) {
   const slug = searchParams.get("slug");
   const full = searchParams.get("full") === "true";
 
-  // Internal usage: full client with secrets (server-to-server only)
   if (slug && full) {
-    const client = getClientBySlug(slug);
+    const client = await getClientBySlug(slug);
     if (!client) {
       return NextResponse.json({ error: "Cliente não encontrado" }, { status: 404 });
     }
@@ -43,14 +42,14 @@ export async function GET(req: NextRequest) {
   }
 
   if (slug) {
-    const client = getClientBySlug(slug);
+    const client = await getClientBySlug(slug);
     if (!client) {
       return NextResponse.json({ error: "Cliente não encontrado" }, { status: 404 });
     }
     return NextResponse.json(toPublic(client));
   }
 
-  const clients = getClients();
+  const clients = await getClients();
   return NextResponse.json({ clientes: clients.map(toPublic) });
 }
 
@@ -65,7 +64,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "nome e slug são obrigatórios" }, { status: 400 });
   }
 
-  upsertClient(body);
+  await upsertClient(body);
   return NextResponse.json({ success: true, client: toPublic(body) }, { status: 201 });
 }
 
@@ -80,7 +79,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "slug é obrigatório" }, { status: 400 });
   }
 
-  upsertClient(body);
+  await upsertClient(body);
   return NextResponse.json({ success: true, client: toPublic(body) });
 }
 
@@ -97,7 +96,7 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "slug é obrigatório" }, { status: 400 });
   }
 
-  const deleted = deleteClientBySlug(slug);
+  const deleted = await deleteClientBySlug(slug);
   if (!deleted) {
     return NextResponse.json({ error: "Cliente não encontrado" }, { status: 404 });
   }

@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "clientSlug obrigatório" }, { status: 400 });
   }
 
-  const client = getClientBySlug(clientSlug);
+  const client = await getClientBySlug(clientSlug);
   if (!client) {
     return NextResponse.json({ error: "Cliente não encontrado" }, { status: 404 });
   }

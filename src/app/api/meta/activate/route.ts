@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const client = getClientBySlug(clientSlug);
+  const client = await getClientBySlug(clientSlug);
   if (!client) {
     return NextResponse.json({ error: "Cliente não encontrado" }, { status: 404 });
   }

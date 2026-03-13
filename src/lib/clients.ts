@@ -1,51 +1,70 @@
-import fs from "fs";
-import path from "path";
-import type { Client, ClientsFile } from "@/types/client";
+import { createClient } from "@supabase/supabase-js";
+import type { Client } from "@/types/client";
 
-const CLIENTS_PATH = path.join(process.cwd(), "clients.json");
-const EXAMPLE_PATH = path.join(process.cwd(), "clients.example.json");
+const supabaseUrl = process.env.SUPABASE_URL!;
+const supabaseKey = process.env.SUPABASE_ANON_KEY!;
 
-function resolveClientsPath(): string {
-  if (fs.existsSync(CLIENTS_PATH)) return CLIENTS_PATH;
-  return EXAMPLE_PATH;
+function getSupabase() {
+  return createClient(supabaseUrl, supabaseKey);
 }
 
-export function getClients(): Client[] {
+export async function getClients(): Promise<Client[]> {
   try {
-    const filePath = resolveClientsPath();
-    const raw = fs.readFileSync(filePath, "utf-8");
-    const data: ClientsFile = JSON.parse(raw);
-    return data.clientes ?? [];
+    const { data, error } = await getSupabase()
+      .from("meta_ads_clients")
+      .select("*")
+      .order("nome");
+    if (error) throw error;
+    return (data ?? []).map(rowToClient);
   } catch {
     return [];
   }
 }
 
-export function saveClients(clientes: Client[]): void {
-  const data: ClientsFile = { clientes };
-  fs.writeFileSync(CLIENTS_PATH, JSON.stringify(data, null, 2), "utf-8");
+export async function getClientBySlug(slug: string): Promise<Client | null> {
+  const { data, error } = await getSupabase()
+    .from("meta_ads_clients")
+    .select("*")
+    .eq("slug", slug)
+    .single();
+  if (error || !data) return null;
+  return rowToClient(data);
 }
 
-export function getClientBySlug(slug: string): Client | null {
-  const clients = getClients();
-  return clients.find((c) => c.slug === slug) ?? null;
+export async function upsertClient(client: Client): Promise<void> {
+  const { error } = await getSupabase()
+    .from("meta_ads_clients")
+    .upsert(clientToRow(client), { onConflict: "slug" });
+  if (error) throw error;
 }
 
-export function upsertClient(client: Client): void {
-  const clients = getClients();
-  const idx = clients.findIndex((c) => c.slug === client.slug);
-  if (idx >= 0) {
-    clients[idx] = client;
-  } else {
-    clients.push(client);
-  }
-  saveClients(clients);
+export async function deleteClientBySlug(slug: string): Promise<boolean> {
+  const { error, count } = await getSupabase()
+    .from("meta_ads_clients")
+    .delete({ count: "exact" })
+    .eq("slug", slug);
+  if (error) throw error;
+  return (count ?? 0) > 0;
 }
 
-export function deleteClientBySlug(slug: string): boolean {
-  const clients = getClients();
-  const filtered = clients.filter((c) => c.slug !== slug);
-  if (filtered.length === clients.length) return false;
-  saveClients(filtered);
-  return true;
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+function rowToClient(row: Record<string, unknown>): Client {
+  return {
+    nome: row.nome as string,
+    slug: row.slug as string,
+    ativo: row.ativo as boolean,
+    meta: row.meta as Client["meta"],
+    contexto: row.contexto as Client["contexto"],
+  };
+}
+
+function clientToRow(client: Client) {
+  return {
+    nome: client.nome,
+    slug: client.slug,
+    ativo: client.ativo,
+    meta: client.meta,
+    contexto: client.contexto,
+  };
 }

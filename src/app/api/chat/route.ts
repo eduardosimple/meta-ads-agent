@@ -18,9 +18,9 @@ function getClaudeMd(): string {
   }
 }
 
-function buildSystemPrompt(clientSlug: string): string {
+async function buildSystemPrompt(clientSlug: string): Promise<string> {
   const claudeMd = getClaudeMd();
-  const client = getClientBySlug(clientSlug);
+  const client = await getClientBySlug(clientSlug);
 
   let clientContext = "";
   if (client) {
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Mensagem obrigatória" }, { status: 400 });
   }
 
-  const systemPrompt = buildSystemPrompt(clientSlug ?? "");
+  const systemPrompt = await buildSystemPrompt(clientSlug ?? "");
 
   const messages: Anthropic.MessageParam[] = [
     ...(history ?? []).map((h: { role: string; content: string }) => ({

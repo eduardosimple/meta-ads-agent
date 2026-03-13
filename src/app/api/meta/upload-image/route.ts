@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Campo 'image' é obrigatório" }, { status: 400 });
     }
 
-    const client = getClientBySlug(clientSlug);
+    const client = await getClientBySlug(clientSlug);
     if (!client) {
       return NextResponse.json({ error: "Cliente não encontrado" }, { status: 404 });
     }
