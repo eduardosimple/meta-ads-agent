@@ -70,17 +70,9 @@ export async function POST(req: NextRequest) {
           },
         ],
       };
-    } else if (targeting?.cityName) {
-      // Fallback: use custom_locations with name
-      targetingSpec.geo_locations = {
-        custom_locations: [
-          {
-            address_string: targeting.cityName,
-            radius: targeting.radiusKm ?? 10,
-            distance_unit: "kilometer",
-          },
-        ],
-      };
+    } else {
+      // Fallback: target Brazil
+      targetingSpec.geo_locations = { countries: ["BR"] };
     }
 
     const payload: Record<string, unknown> = {
@@ -89,7 +81,6 @@ export async function POST(req: NextRequest) {
       status: "PAUSED",
       optimization_goal: optimizationGoal ?? "LEAD_GENERATION",
       billing_event: "IMPRESSIONS",
-      bid_amount: 200, // R$ 2.00 default, in cents
       targeting: targetingSpec,
       access_token: client.meta.access_token,
     };
