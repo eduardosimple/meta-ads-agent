@@ -1,0 +1,46 @@
+{
+  "clientes": [
+    {
+      "nome": "Residencial Aurora",
+      "slug": "residencial-aurora",
+      "ativo": true,
+      "meta": {
+        "access_token": "your_access_token_here",
+        "ad_account_id": "act_your_ad_account_id_here",
+        "app_id": "your_app_id_here",
+        "app_secret": "your_app_secret_here",
+        "page_id": "your_page_id_here",
+        "page_name": "Residencial Aurora Oficial"
+      },
+      "contexto": {
+        "segmento": "imobiliário",
+        "cidade": "São Paulo",
+        "estado": "SP",
+        "publico_alvo": "25-55 anos, interessados em imóveis",
+        "orcamento_diario_padrao": 5000,
+        "objetivo_padrao": "OUTCOME_LEADS"
+      }
+    },
+    {
+      "nome": "Construtora Horizonte",
+      "slug": "construtora-horizonte",
+      "ativo": true,
+      "meta": {
+        "access_token": "your_access_token_here",
+        "ad_account_id": "act_your_ad_account_id_here",
+        "app_id": "your_app_id_here",
+        "app_secret": "your_app_secret_here",
+        "page_id": "your_page_id_here",
+        "page_name": "Construtora Horizonte"
+      },
+      "contexto": {
+        "segmento": "imobiliário",
+        "cidade": "Campinas",
+        "estado": "SP",
+        "publico_alvo": "30-60 anos, alto padrão",
+        "orcamento_diario_padrao": 10000,
+        "objetivo_padrao": "OUTCOME_LEADS"
+      }
+    }
+  ]
+}

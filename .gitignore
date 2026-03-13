@@ -1,5 +1,6 @@
 # Credenciais — NUNCA commitar
 .env
+clients.json
 
 # macOS
 .DS_Store

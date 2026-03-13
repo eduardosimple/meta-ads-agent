@@ -15,6 +15,7 @@ Você é um agente especialista em criação e gestão de campanhas de anúncios
 
 | Skill | Arquivo | Função |
 |-------|---------|--------|
+| `/selecionar-cliente` | `.claude/skills/selecionar-cliente/SKILL.md` | Carregar credenciais e contexto do cliente |
 | `/meta-auth` | `.claude/skills/meta-auth/SKILL.md` | Autenticar e validar credenciais da Meta API |
 | `/criar-campanha` | `.claude/skills/criar-campanha/SKILL.md` | Criar campanha no Meta Ads (sempre pausada) |
 | `/criar-adset` | `.claude/skills/criar-adset/SKILL.md` | Criar conjunto de anúncios com segmentação imobiliária |
@@ -27,6 +28,7 @@ Você é um agente especialista em criação e gestão de campanhas de anúncios
 ## Fluxo Obrigatório de Criação
 
 ```
+0. /selecionar-cliente → Carregar credenciais do cliente pelo nome
 1. /meta-auth          → Validar token e conta de anúncios
 2. /criar-campanha     → Criar campanha (status: PAUSED)
 3. /criar-adset        → Criar conjunto de anúncios (status: PAUSED)
@@ -34,6 +36,14 @@ Você é um agente especialista em criação e gestão de campanhas de anúncios
 5. /criar-anuncio      → Criar anúncio vinculando tudo (status: PAUSED)
 6. /revisar-campanha   → Revisar tudo e aprovar para ativação
 ```
+
+### Exemplo de comando natural
+> "Crie uma campanha de leads para o cliente Residencial Aurora com orçamento de R$100/dia"
+
+O agente deve automaticamente:
+1. Identificar "Residencial Aurora" como cliente → `/selecionar-cliente`
+2. Validar credenciais → `/meta-auth`
+3. Seguir o fluxo completo pausando em cada etapa para confirmação
 
 **REGRAS INVIOLÁVEIS:**
 - Todo objeto criado começa com `status: PAUSED`
@@ -68,16 +78,30 @@ Você é um agente especialista em criação e gestão de campanhas de anúncios
 
 ---
 
-## Variáveis de Ambiente
+## Gestão de Clientes
 
-Carregadas via `setup.sh` a partir do `.env`:
+Todos os clientes ficam em `clients.json` (nunca commitado no git).
+Template em `clients.example.json`.
 
-```
-META_ACCESS_TOKEN     — Token de acesso à Meta Graph API
-META_AD_ACCOUNT_ID    — ID da conta de anúncios (formato: act_XXXXXXXXX)
-META_APP_ID           — ID do aplicativo Meta
-META_APP_SECRET       — Chave secreta do aplicativo Meta
-```
+Cada cliente tem:
+- Credenciais próprias da Meta API (access_token, ad_account_id, app_id, app_secret, page_id)
+- Contexto de campanha (cidade, estado, orçamento padrão, objetivo padrão)
+
+Para listar clientes: `source setup.sh`
+Para selecionar: `source setup.sh "Nome do Cliente"`
+
+## Variáveis de Ambiente (após selecionar cliente)
+
+| Variável | Descrição |
+|----------|-----------|
+| `META_ACCESS_TOKEN` | Token de acesso à Meta Graph API |
+| `META_AD_ACCOUNT_ID` | ID da conta de anúncios (act_XXXXXXXXX) |
+| `META_APP_ID` | ID do aplicativo Meta |
+| `META_APP_SECRET` | Chave secreta do aplicativo |
+| `META_PAGE_ID` | ID da página do Facebook |
+| `CLIENT_CIDADE` | Cidade principal do cliente |
+| `CLIENT_ORCAMENTO_PADRAO` | Orçamento diário padrão em centavos |
+| `CLIENT_OBJETIVO_PADRAO` | Objetivo padrão de campanha |
 
 ---
 
