@@ -1,12 +1,20 @@
 "use client";
 
+import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { useClients } from "@/hooks/useClients";
 import { useSelectedClient } from "@/hooks/useSelectedClient";
 import type { ClientPublic } from "@/types/client";
 
 export default function ClientSelector() {
-  const { clients, loading } = useClients();
+  const { clients, loading, refetch } = useClients();
   const { selectedClient, selectClient } = useSelectedClient();
+  const pathname = usePathname();
+
+  // Refetch clients whenever the route changes so new clients appear immediately
+  useEffect(() => {
+    refetch();
+  }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const slug = e.target.value;
