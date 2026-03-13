@@ -58,7 +58,12 @@ export default function ChatInterface() {
         });
 
         if (!res.ok || !res.body) {
-          throw new Error("Falha na requisição");
+          let errDetail = `HTTP ${res.status}`;
+          try {
+            const errJson = await res.json();
+            errDetail = errJson.error ?? errDetail;
+          } catch { /* ignore */ }
+          throw new Error(`Falha na requisição: ${errDetail}`);
         }
 
         const reader = res.body.getReader();
