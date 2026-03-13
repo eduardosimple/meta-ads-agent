@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import type { ClientPublic } from "@/types/client";
+import DriveFilePicker, { type DriveFile } from "@/components/drive/DriveFilePicker";
 
 export interface CriativoFormData {
   format: "image" | "carousel";
@@ -12,6 +13,7 @@ export interface CriativoFormData {
   linkUrl: string;
   imagePreviewUrl: string | null;
   imageName: string | null;
+  driveFileId?: string | null;
 }
 
 interface StepCriativoProps {
@@ -53,6 +55,7 @@ export default function StepCriativo({
     }
   );
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [driveFile, setDriveFile] = useState<DriveFile | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,11 +70,24 @@ export default function StepCriativo({
     const file = e.target.files?.[0];
     if (!file) return;
     setImageFile(file);
+    setDriveFile(null);
     const url = URL.createObjectURL(file);
     setForm((prev) => ({
       ...prev,
       imagePreviewUrl: url,
       imageName: file.name,
+      driveFileId: null,
+    }));
+  }
+
+  function handleDriveSelect(file: DriveFile) {
+    setDriveFile(file);
+    setImageFile(null);
+    setForm((prev) => ({
+      ...prev,
+      imagePreviewUrl: file.thumbnailLink,
+      imageName: file.name,
+      driveFileId: file.id,
     }));
   }
 
@@ -118,6 +134,25 @@ export default function StepCriativo({
 
       if (imageFile) {
         imageHash = await uploadImage(imageFile);
+      } else if (driveFile) {
+        setUploadingImage(true);
+        const driveRes = await fetch("/api/drive/download", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            fileId: driveFile.id,
+            clientSlug: selectedClient.slug,
+          }),
+        });
+        const driveData = await driveRes.json();
+        setUploadingImage(false);
+        if (!driveRes.ok) {
+          throw new Error(driveData.error ?? "Erro ao importar imagem do Drive");
+        }
+        imageHash = driveData.hash as string;
       }
 
       const body: Record<string, unknown> = {
@@ -255,6 +290,25 @@ export default function StepCriativo({
             onChange={handleImageChange}
             className="hidden"
           />
+
+          {/* Drive picker */}
+          <div className="flex items-center gap-3 mt-3">
+            <div className="flex-1 border-t border-gray-200" />
+            <span className="text-xs text-gray-400">ou</span>
+            <div className="flex-1 border-t border-gray-200" />
+          </div>
+          <div className="mt-3">
+            <DriveFilePicker onSelect={handleDriveSelect} />
+            {driveFile && (
+              <p className="text-xs text-blue-600 mt-1 flex items-center gap-1">
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M4.433 22l3.59-6.218H22l-3.59 6.218H4.433zm-2.425-2.018L5.598 14H2l2.39-4.143h6.3L7.3 14h3.604L8.012 18.69 5.59 22H2.008zM9.007 2l3.59 6.218L8.008 14H15.6l4.59-7.93L16.6 2H9.006z"/>
+                </svg>
+                Imagem do Google Drive selecionada
+              </p>
+            )}
+          </div>
+
           {uploadingImage && (
             <p className="text-blue-600 text-xs mt-1 flex items-center gap-1">
               <svg
