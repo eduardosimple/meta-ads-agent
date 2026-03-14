@@ -157,18 +157,29 @@ const TOOLS: Anthropic.Tool[] = [
           description:
             "Idade máxima do público (18-65). Não use em campanhas HOUSING.",
         },
+        campaign_objetivo: {
+          type: "string",
+          enum: [
+            "OUTCOME_LEADS",
+            "OUTCOME_TRAFFIC",
+            "OUTCOME_SALES",
+            "OUTCOME_AWARENESS",
+          ],
+          description:
+            "Objetivo da campanha pai. Usado para derivar o optimization_goal correto automaticamente.",
+        },
         objetivo_otimizacao: {
           type: "string",
           description:
-            "Objetivo de otimização. Para OUTCOME_LEADS: LEAD_GENERATION. Para OUTCOME_TRAFFIC: LINK_CLICKS.",
+            "Sobrescreve o optimization_goal derivado. Use apenas se souber o valor exato.",
         },
         page_id: {
           type: "string",
           description:
-            "ID da página Facebook. Obrigatório para LEAD_GENERATION (promoted_object).",
+            "ID da página Facebook. Incluído automaticamente para OUTCOME_LEADS.",
         },
       },
-      required: ["nome", "campaign_id"],
+      required: ["nome", "campaign_id", "campaign_objetivo"],
     },
   },
   {
@@ -245,6 +256,19 @@ const TOOLS: Anthropic.Tool[] = [
 
 // ─── Tool execution ──────────────────────────────────────────────────────────
 
+function metaError(
+  err: { message?: string; code?: number; error_subcode?: number; error_user_msg?: string } | undefined,
+  fallback: string
+): string {
+  if (!err) return fallback;
+  const parts: string[] = [];
+  if (err.message) parts.push(err.message);
+  if (err.error_user_msg && err.error_user_msg !== err.message)
+    parts.push(`(${err.error_user_msg})`);
+  if (err.code) parts.push(`[code ${err.code}${err.error_subcode ? `.${err.error_subcode}` : ""}]`);
+  return parts.length ? parts.join(" ") : fallback;
+}
+
 async function executeTool(
   toolName: string,
   input: Record<string, unknown>,
@@ -295,10 +319,10 @@ async function executeTool(
       });
       const data = (await res.json()) as {
         id?: string;
-        error?: { message: string };
+        error?: { message: string; code?: number; error_subcode?: number; error_user_msg?: string };
       };
       if (!res.ok || data.error)
-        throw new Error(data.error?.message ?? "Erro ao criar campanha");
+        throw new Error(metaError(data.error, "Erro ao criar campanha"));
       return { campaign_id: data.id, nome: input.nome, status: "PAUSED" };
     }
 
@@ -322,7 +346,18 @@ async function executeTool(
         targetingSpec.geo_locations = { countries: ["BR"] };
       }
 
-      const optGoal = String(input.objetivo_otimizacao ?? "LEAD_GENERATION");
+      // Derive optimization_goal from campaign objective unless overridden
+      const objectiveGoalMap: Record<string, string> = {
+        OUTCOME_LEADS: "LEAD_GENERATION",
+        OUTCOME_TRAFFIC: "LINK_CLICKS",
+        OUTCOME_SALES: "OFFSITE_CONVERSIONS",
+        OUTCOME_AWARENESS: "REACH",
+      };
+      const campaignObj = String(input.campaign_objetivo ?? "OUTCOME_TRAFFIC");
+      const optGoal = String(
+        input.objetivo_otimizacao ?? objectiveGoalMap[campaignObj] ?? "LINK_CLICKS"
+      );
+
       const adsetPayload: Record<string, unknown> = {
         name: input.nome,
         campaign_id: input.campaign_id,
@@ -333,7 +368,7 @@ async function executeTool(
         access_token: accessToken,
       };
 
-      // promoted_object required for LEAD_GENERATION
+      // promoted_object required only for LEAD_GENERATION (OUTCOME_LEADS)
       if (optGoal === "LEAD_GENERATION") {
         const pageId = String(input.page_id ?? client.meta.page_id);
         adsetPayload.promoted_object = { page_id: pageId };
@@ -347,10 +382,10 @@ async function executeTool(
       });
       const data = (await res.json()) as {
         id?: string;
-        error?: { message: string };
+        error?: { message: string; code?: number; error_subcode?: number; error_user_msg?: string };
       };
       if (!res.ok || data.error)
-        throw new Error(data.error?.message ?? "Erro ao criar adset");
+        throw new Error(metaError(data.error, "Erro ao criar adset"));
       return { adset_id: data.id, nome: input.nome, status: "PAUSED" };
     }
 
@@ -381,10 +416,10 @@ async function executeTool(
       );
       const data = (await res.json()) as {
         id?: string;
-        error?: { message: string };
+        error?: { message: string; code?: number; error_subcode?: number; error_user_msg?: string };
       };
       if (!res.ok || data.error)
-        throw new Error(data.error?.message ?? "Erro ao criar criativo");
+        throw new Error(metaError(data.error, "Erro ao criar criativo"));
       return { creative_id: data.id, nome: input.nome };
     }
 
@@ -403,10 +438,10 @@ async function executeTool(
       });
       const data = (await res.json()) as {
         id?: string;
-        error?: { message: string };
+        error?: { message: string; code?: number; error_subcode?: number; error_user_msg?: string };
       };
       if (!res.ok || data.error)
-        throw new Error(data.error?.message ?? "Erro ao criar anúncio");
+        throw new Error(metaError(data.error, "Erro ao criar anúncio"));
       return { ad_id: data.id, nome: input.nome, status: "PAUSED" };
     }
 
@@ -418,10 +453,10 @@ async function executeTool(
       });
       const data = (await res.json()) as {
         success?: boolean;
-        error?: { message: string };
+        error?: { message: string; code?: number; error_subcode?: number; error_user_msg?: string };
       };
       if (!res.ok || data.error)
-        throw new Error(data.error?.message ?? "Erro ao ativar campanha");
+        throw new Error(metaError(data.error, "Erro ao ativar campanha"));
       return { campaign_id: input.campaign_id, status: "ACTIVE", sucesso: true };
     }
 
