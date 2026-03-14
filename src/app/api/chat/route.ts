@@ -118,6 +118,12 @@ const TOOLS: Anthropic.Tool[] = [
           type: "number",
           description: "Orçamento diário em reais (ex: 50 para R$50)",
         },
+        categoria_especial: {
+          type: "string",
+          enum: ["NONE", "HOUSING", "EMPLOYMENT", "CREDIT"],
+          description:
+            "Categoria especial de anúncio. Use HOUSING apenas para imóveis, NONE para todos os outros (padrão: NONE)",
+        },
       },
       required: ["nome", "objetivo", "orcamento_diario_reais"],
     },
@@ -143,16 +149,23 @@ const TOOLS: Anthropic.Tool[] = [
         },
         idade_minima: {
           type: "number",
-          description: "Idade mínima do público (padrão 25)",
+          description:
+            "Idade mínima do público (18-65). Não use em campanhas HOUSING.",
         },
         idade_maxima: {
           type: "number",
-          description: "Idade máxima do público (padrão 65)",
+          description:
+            "Idade máxima do público (18-65). Não use em campanhas HOUSING.",
         },
         objetivo_otimizacao: {
           type: "string",
           description:
-            "Objetivo de otimização (padrão: LEAD_GENERATION para OUTCOME_LEADS)",
+            "Objetivo de otimização. Para OUTCOME_LEADS: LEAD_GENERATION. Para OUTCOME_TRAFFIC: LINK_CLICKS.",
+        },
+        page_id: {
+          type: "string",
+          description:
+            "ID da página Facebook. Obrigatório para LEAD_GENERATION (promoted_object).",
         },
       },
       required: ["nome", "campaign_id"],
@@ -263,11 +276,13 @@ async function executeTool(
     }
 
     case "criar_campanha": {
+      const specialCat = String(input.categoria_especial ?? "NONE");
       const payload = {
         name: input.nome,
         objective: input.objetivo,
         status: "PAUSED",
-        special_ad_categories: ["HOUSING"],
+        special_ad_categories:
+          specialCat === "NONE" ? [] : [specialCat],
         daily_budget: String(
           Math.round((input.orcamento_diario_reais as number) * 100)
         ),
@@ -288,10 +303,11 @@ async function executeTool(
     }
 
     case "criar_adset": {
-      const targetingSpec: Record<string, unknown> = {
-        age_min: input.idade_minima ?? 25,
-        age_max: input.idade_maxima ?? 65,
-      };
+      // Only include age if explicitly provided — HOUSING campaigns forbid age targeting
+      const targetingSpec: Record<string, unknown> = {};
+      if (input.idade_minima) targetingSpec.age_min = input.idade_minima;
+      if (input.idade_maxima) targetingSpec.age_max = input.idade_maxima;
+
       if (input.cidade_key) {
         targetingSpec.geo_locations = {
           cities: [
@@ -305,15 +321,25 @@ async function executeTool(
       } else {
         targetingSpec.geo_locations = { countries: ["BR"] };
       }
-      const payload = {
+
+      const optGoal = String(input.objetivo_otimizacao ?? "LEAD_GENERATION");
+      const adsetPayload: Record<string, unknown> = {
         name: input.nome,
         campaign_id: input.campaign_id,
         status: "PAUSED",
-        optimization_goal: input.objetivo_otimizacao ?? "LEAD_GENERATION",
+        optimization_goal: optGoal,
         billing_event: "IMPRESSIONS",
         targeting: targetingSpec,
         access_token: accessToken,
       };
+
+      // promoted_object required for LEAD_GENERATION
+      if (optGoal === "LEAD_GENERATION") {
+        const pageId = String(input.page_id ?? client.meta.page_id);
+        adsetPayload.promoted_object = { page_id: pageId };
+      }
+
+      const payload = adsetPayload;
       const res = await fetch(`${META_API_BASE}/${adAccountId}/adsets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
