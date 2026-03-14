@@ -374,18 +374,31 @@ async function executeTool(
         adsetPayload.promoted_object = { page_id: pageId };
       }
 
-      const payload = adsetPayload;
+      const payloadToSend = { ...adsetPayload };
+      // Never log access_token
+      const logPayload = { ...payloadToSend, access_token: "[redacted]" };
+      console.log("[criar_adset] payload:", JSON.stringify(logPayload, null, 2));
+
       const res = await fetch(`${META_API_BASE}/${adAccountId}/adsets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(payloadToSend),
       });
-      const data = (await res.json()) as {
-        id?: string;
-        error?: { message: string; code?: number; error_subcode?: number; error_user_msg?: string };
-      };
-      if (!res.ok || data.error)
-        throw new Error(metaError(data.error, "Erro ao criar adset"));
+      const rawText = await res.text();
+      console.log("[criar_adset] meta response:", rawText);
+
+      let data: { id?: string; error?: { message: string; code?: number; error_subcode?: number; error_user_msg?: string; error_data?: unknown } };
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        throw new Error(`Meta API resposta inválida: ${rawText}`);
+      }
+
+      if (!res.ok || data.error) {
+        const errMsg = metaError(data.error, "Erro ao criar adset");
+        // Return full error details so agent can diagnose
+        throw new Error(`${errMsg} | payload: ${JSON.stringify(logPayload)}`);
+      }
       return { adset_id: data.id, nome: input.nome, status: "PAUSED" };
     }
 
