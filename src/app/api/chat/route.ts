@@ -114,10 +114,6 @@ const TOOLS: Anthropic.Tool[] = [
           ],
           description: "Objetivo da campanha",
         },
-        orcamento_diario_reais: {
-          type: "number",
-          description: "Orçamento diário em reais (ex: 50 para R$50)",
-        },
         categoria_especial: {
           type: "string",
           enum: ["NONE", "HOUSING", "EMPLOYMENT", "CREDIT"],
@@ -125,7 +121,7 @@ const TOOLS: Anthropic.Tool[] = [
             "Categoria especial de anúncio. Use HOUSING apenas para imóveis, NONE para todos os outros (padrão: NONE)",
         },
       },
-      required: ["nome", "objetivo", "orcamento_diario_reais"],
+      required: ["nome", "objetivo"],
     },
   },
   {
@@ -173,13 +169,17 @@ const TOOLS: Anthropic.Tool[] = [
           description:
             "Sobrescreve o optimization_goal derivado. Use apenas se souber o valor exato.",
         },
+        orcamento_diario_reais: {
+          type: "number",
+          description: "Orçamento diário em reais (ex: 50 para R$50). Obrigatório.",
+        },
         page_id: {
           type: "string",
           description:
             "ID da página Facebook. Incluído automaticamente para OUTCOME_LEADS.",
         },
       },
-      required: ["nome", "campaign_id", "campaign_objetivo"],
+      required: ["nome", "campaign_id", "campaign_objetivo", "orcamento_diario_reais"],
     },
   },
   {
@@ -301,15 +301,13 @@ async function executeTool(
 
     case "criar_campanha": {
       const specialCat = String(input.categoria_especial ?? "NONE");
+      // No daily_budget here — budget goes on the adset (works for all account types)
       const payload = {
         name: input.nome,
         objective: input.objetivo,
         status: "PAUSED",
         special_ad_categories:
           specialCat === "NONE" ? [] : [specialCat],
-        daily_budget: String(
-          Math.round((input.orcamento_diario_reais as number) * 100)
-        ),
         access_token: accessToken,
       };
       const res = await fetch(`${META_API_BASE}/${adAccountId}/campaigns`, {
@@ -364,6 +362,7 @@ async function executeTool(
         status: "PAUSED",
         optimization_goal: optGoal,
         billing_event: "IMPRESSIONS",
+        daily_budget: String(Math.round((input.orcamento_diario_reais as number) * 100)),
         targeting: targetingSpec,
         access_token: accessToken,
       };
