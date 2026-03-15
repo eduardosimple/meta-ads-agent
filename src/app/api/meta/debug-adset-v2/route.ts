@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getClientBySlug } from "@/lib/clients";
+import { getClientBySlug, getClients } from "@/lib/clients";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -11,9 +11,13 @@ export async function GET(req: NextRequest) {
   const campaignId = searchParams.get("campaign_id") ?? "";
   const apiVersion = searchParams.get("v") ?? "v19.0";
 
+  // List all clients to help find the right slug
+  const allClients = await getClients();
+  const slugsAvailable = allClients.map(c => ({ nome: c.nome, slug: c.slug }));
+
   const client = await getClientBySlug(slug);
   if (!client) {
-    return NextResponse.json({ error: "Cliente não encontrado", slug });
+    return NextResponse.json({ error: "Cliente não encontrado", slug_tentado: slug, slugs_disponiveis: slugsAvailable });
   }
 
   const results: Record<string, unknown> = {
