@@ -565,6 +565,10 @@ export async function POST(req: NextRequest) {
                 } catch (err) {
                   const msg =
                     err instanceof Error ? err.message : "Erro na ferramenta";
+                  // Emit raw error directly to stream so user sees it verbatim
+                  controller.enqueue(
+                    encoder.encode(`\n\n\`\`\`\nERRO_RAW: ${msg.slice(0, 800)}\n\`\`\`\n\n`)
+                  );
                   toolResults.push({
                     type: "tool_result",
                     tool_use_id: block.id,
