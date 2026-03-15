@@ -362,7 +362,7 @@ async function executeTool(
         status: "PAUSED",
         optimization_goal: optGoal,
         billing_event: "IMPRESSIONS",
-        daily_budget: String(Math.round((input.orcamento_diario_reais as number) * 100)),
+        daily_budget: String(Math.round(Math.max(Number(input.orcamento_diario_reais) || 10, 6) * 100)),
         targeting: targetingSpec,
         access_token: accessToken,
       };
@@ -399,9 +399,8 @@ async function executeTool(
       }
 
       if (!res.ok || data.error) {
-        const errMsg = metaError(data.error, "Erro ao criar adset");
-        // Return full error details so agent can diagnose
-        throw new Error(`${errMsg} | payload: ${JSON.stringify(logPayload)}`);
+        // Return full Meta API error as-is so it propagates to the chat
+        throw new Error(`META_API_ERROR: ${rawText} | PAYLOAD: ${JSON.stringify(logPayload)}`);
       }
       return { adset_id: data.id, nome: input.nome, status: "PAUSED" };
     }
