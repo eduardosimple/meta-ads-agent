@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getClientBySlug, getClients } from "@/lib/clients";
+import { createClient } from "@supabase/supabase-js";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -11,7 +12,37 @@ export async function GET(req: NextRequest) {
   const campaignId = searchParams.get("campaign_id") ?? "";
   const apiVersion = searchParams.get("v") ?? "v19.0";
 
-  // List all clients to help find the right slug
+  // Diagnose Supabase connection
+  const supabaseUrl = process.env.SUPABASE_URL ?? "NOT_SET";
+  const supabaseKey = process.env.SUPABASE_ANON_KEY ?? "NOT_SET";
+
+  const supabaseDiag: Record<string, unknown> = {
+    url_set: supabaseUrl !== "NOT_SET",
+    url_length: supabaseUrl.length,
+    url_has_newline: supabaseUrl.includes("\n"),
+    url_preview: supabaseUrl.slice(0, 40),
+  };
+
+  // Try raw Supabase query with explicit error capture
+  try {
+    const sb = createClient(supabaseUrl, supabaseKey);
+    const { data, error, status, statusText } = await sb
+      .from("meta_ads_clients")
+      .select("nome, slug")
+      .limit(10);
+    supabaseDiag.query_status = status;
+    supabaseDiag.query_statusText = statusText;
+    supabaseDiag.query_error = error ?? null;
+    supabaseDiag.rows_found = data?.length ?? 0;
+    supabaseDiag.rows = data ?? [];
+  } catch (e) {
+    supabaseDiag.query_exception = e instanceof Error ? e.message : String(e);
+  }
+
+  if ((supabaseDiag.rows_found as number) === 0) {
+    return NextResponse.json({ supabase_diagnostico: supabaseDiag });
+  }
+
   const allClients = await getClients();
   const slugsAvailable = allClients.map(c => ({ nome: c.nome, slug: c.slug }));
 
