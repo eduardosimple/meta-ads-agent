@@ -368,6 +368,11 @@ async function executeTool(
         access_token: accessToken,
       };
 
+      // destination_type required for OUTCOME_TRAFFIC
+      if (campaignObj === "OUTCOME_TRAFFIC") {
+        adsetPayload.destination_type = "WEBSITE";
+      }
+
       // promoted_object required only for LEAD_GENERATION (OUTCOME_LEADS)
       if (optGoal === "LEAD_GENERATION") {
         const pageId = String(input.page_id ?? client.meta.page_id);
