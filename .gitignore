@@ -22,3 +22,5 @@ node_modules/
 # Build
 dist/
 build/
+.vercel
+.env*.local
