@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthFromRequest } from "@/lib/auth";
 import { getClientBySlug } from "@/lib/clients";
 import { pauseEntity, updateAdsetBudget } from "@/lib/meta-api";
+import { pauseGoogleAdGroup, pauseGoogleCampaign } from "@/lib/google-ads-api";
 import type { ProposalAction } from "@/types/metrics";
 
 export async function POST(req: NextRequest) {
@@ -15,6 +16,7 @@ export async function POST(req: NextRequest) {
 
   try {
     switch (action.type) {
+      // Meta Ads
       case "pause_ad":
         await pauseEntity(action.ad_id, client.meta.access_token);
         return NextResponse.json({ success: true, message: "Anúncio pausado com sucesso" });
@@ -27,8 +29,19 @@ export async function POST(req: NextRequest) {
         await updateAdsetBudget(action.adset_id, action.new_budget_cents, client.meta.access_token);
         return NextResponse.json({ success: true, message: `Orçamento atualizado para R$ ${(action.new_budget_cents / 100).toFixed(2)}/dia` });
 
+      // Google Ads
+      case "pause_google_ad_group":
+        if (!client.google) return NextResponse.json({ error: "Cliente sem credenciais Google Ads" }, { status: 400 });
+        await pauseGoogleAdGroup(client.google, action.ad_group_id);
+        return NextResponse.json({ success: true, message: "Grupo de anúncios pausado com sucesso no Google Ads" });
+
+      case "pause_google_campaign":
+        if (!client.google) return NextResponse.json({ error: "Cliente sem credenciais Google Ads" }, { status: 400 });
+        await pauseGoogleCampaign(client.google, action.campaign_id);
+        return NextResponse.json({ success: true, message: "Campanha pausada com sucesso no Google Ads" });
+
       case "none":
-        return NextResponse.json({ success: true, message: "Registrado como aprovado (ação manual necessária)" });
+        return NextResponse.json({ success: true, message: "Registrado (ação manual necessária no Google Ads)" });
 
       default:
         return NextResponse.json({ error: "Tipo de ação desconhecido" }, { status: 400 });

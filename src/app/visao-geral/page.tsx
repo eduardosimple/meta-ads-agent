@@ -418,6 +418,39 @@ export default function VisaoGeralPage() {
                     </p>
                   )}
 
+                  {/* Google Ads metrics */}
+                  {(client.google_spend_7d !== undefined || client.google_error) && (
+                    <div className="border border-blue-100 rounded-xl p-3 space-y-2">
+                      <div className="flex items-center gap-1.5">
+                        <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 shrink-0" fill="none">
+                          <path d="M15 8.17c0-.52-.05-1.02-.13-1.5H8v2.84h3.94c-.17.91-.69 1.68-1.47 2.2v1.85h2.38C14.12 12.38 15 10.44 15 8.17z" fill="#4285F4"/>
+                          <path d="M8 15c1.78 0 3.27-.59 4.37-1.59l-2.38-1.85c-.66.44-1.49.7-2.47.7-1.9 0-3.5-1.28-4.08-3.01H1.4v1.9C2.5 13.23 5.07 15 8 15z" fill="#34A853"/>
+                          <path d="M3.92 9.25A4.7 4.7 0 013.68 8c0-.43.08-.85.24-1.25V4.9H1.4A7 7 0 001 8c0 1.12.27 2.18.4 3.14l2.52-1.89z" fill="#FBBC05"/>
+                          <path d="M8 3.25c1.08 0 2.04.37 2.8 1.09l2.1-2.1C11.61 1.06 9.96.33 8 .33 5.07.33 2.5 2.1 1.4 4.67l2.52 1.9C4.5 5 6.1 3.72 8 3.72V3.25z" fill="#EA4335"/>
+                        </svg>
+                        <span className="text-xs font-semibold text-gray-600">Google Ads</span>
+                      </div>
+                      {client.google_error ? (
+                        <p className="text-xs text-red-500">{client.google_error}</p>
+                      ) : (
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="bg-gray-50 rounded-lg p-2 text-center">
+                            <p className="text-xs text-gray-400">Gasto 7d</p>
+                            <p className="text-xs font-semibold text-gray-800 mt-0.5">{formatCurrency(client.google_spend_7d ?? 0)}</p>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-2 text-center">
+                            <p className="text-xs text-gray-400">CTR médio</p>
+                            <p className="text-xs font-semibold text-gray-800 mt-0.5">{(client.google_avg_ctr ?? 0).toFixed(2)}%</p>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-2 text-center">
+                            <p className="text-xs text-gray-400">Conversões</p>
+                            <p className="text-xs font-semibold text-gray-800 mt-0.5">{(client.google_conversions_7d ?? 0).toFixed(0)}</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Footer — last optimization info */}
                   <div className="pt-2 border-t border-gray-100 space-y-3">
 

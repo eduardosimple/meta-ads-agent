@@ -53,6 +53,8 @@ export type ProposalAction =
   | { type: "pause_ad"; ad_id: string }
   | { type: "pause_adset"; adset_id: string }
   | { type: "scale_budget"; adset_id: string; new_budget_cents: number }
+  | { type: "pause_google_ad_group"; ad_group_id: string; customer_id: string }
+  | { type: "pause_google_campaign"; campaign_id: string; customer_id: string }
   | { type: "none" };
 
 export interface Proposal {

@@ -4,7 +4,7 @@ import type { DailyMetric, GoogleAdMetrics } from "@/types/metrics";
 const GOOGLE_ADS_API_BASE = "https://googleads.googleapis.com/v20";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
-function normalizeCustomerId(id: string): string {
+export function normalizeCustomerId(id: string): string {
   return id.replace(/-/g, "");
 }
 
@@ -56,6 +56,57 @@ async function gaqlQuery<T>(
   }
 
   return data.results ?? [];
+}
+
+async function mutateSingleResource(
+  google: ClientGoogle,
+  accessToken: string,
+  resourceType: "adGroups" | "campaigns",
+  resourceName: string,
+  status: "PAUSED" | "ENABLED"
+): Promise<void> {
+  const customerId = normalizeCustomerId(google.customer_id);
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${accessToken}`,
+    "developer-token": google.developer_token,
+  };
+  if (google.manager_customer_id) {
+    headers["login-customer-id"] = normalizeCustomerId(google.manager_customer_id);
+  }
+
+  const body = {
+    operations: [{
+      update: { resourceName, status },
+      updateMask: "status",
+    }],
+  };
+
+  const res = await fetch(`${GOOGLE_ADS_API_BASE}/customers/${customerId}/${resourceType}:mutate`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  const data = await res.json() as { error?: { message?: string; details?: Array<{ errors?: Array<{ message?: string }> }> } };
+  if (!res.ok || data.error) {
+    const detail = data.error?.details?.[0]?.errors?.[0]?.message;
+    throw new Error(detail ?? data.error?.message ?? `Google Ads mutate error: ${res.status}`);
+  }
+}
+
+export async function pauseGoogleAdGroup(google: ClientGoogle, adGroupId: string): Promise<void> {
+  const accessToken = await getAccessToken(google);
+  const customerId = normalizeCustomerId(google.customer_id);
+  const resourceName = `customers/${customerId}/adGroups/${adGroupId}`;
+  await mutateSingleResource(google, accessToken, "adGroups", resourceName, "PAUSED");
+}
+
+export async function pauseGoogleCampaign(google: ClientGoogle, campaignId: string): Promise<void> {
+  const accessToken = await getAccessToken(google);
+  const customerId = normalizeCustomerId(google.customer_id);
+  const resourceName = `customers/${customerId}/campaigns/${campaignId}`;
+  await mutateSingleResource(google, accessToken, "campaigns", resourceName, "PAUSED");
 }
 
 export async function validateGoogleAdsToken(google: ClientGoogle): Promise<boolean> {

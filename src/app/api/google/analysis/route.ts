@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getAuthFromRequest } from "@/lib/auth";
 import { getClientBySlug } from "@/lib/clients";
-import { getGoogleAdGroupInsights } from "@/lib/google-ads-api";
+import { getGoogleAdGroupInsights, normalizeCustomerId } from "@/lib/google-ads-api";
 import type { GoogleAdMetrics, AnalysisResult, Proposal, Alert } from "@/types/metrics";
 import { randomUUID } from "crypto";
 
@@ -86,7 +86,10 @@ Período mínimo para decisão:
 
 Vereditos possíveis: escalar | manter | testar_variacao | ajustar | pausar
 
-IMPORTANTE: Responda APENAS via tool retornar_analise. Os campos ad_id e ad_name devem usar o ID e nome do grupo de anúncios.`;
+IMPORTANTE: Responda APENAS via tool retornar_analise.
+- ad_id e ad_name: use o ID e nome do grupo de anúncios
+- campaign_id: use o ID da campanha do grupo
+- action_type: "pause_ad_group" quando verdict=pausar, "pause_campaign" apenas se toda a campanha deve parar, "none" para os demais`;
 
   const userMessage = `Analise os seguintes grupos de anúncios do Google Ads dos últimos 7 dias e gere propostas de otimização:\n\n${metricsText}`;
 
@@ -115,9 +118,10 @@ IMPORTANTE: Responda APENAS via tool retornar_analise. Os campos ad_id e ad_name
                   diagnostico: { type: "string" },
                   metricas_problema: { type: "array", items: { type: "string" } },
                   acao_sugerida: { type: "string" },
-                  action: { type: "object" },
+                  campaign_id: { type: "string" },
+                  action_type: { type: "string", enum: ["pause_ad_group", "pause_campaign", "none"] },
                 },
-                required: ["ad_id", "ad_name", "adset_name", "campaign_name", "verdict", "titulo", "diagnostico", "metricas_problema", "acao_sugerida", "action"],
+                required: ["ad_id", "ad_name", "adset_name", "campaign_name", "campaign_id", "verdict", "titulo", "diagnostico", "metricas_problema", "acao_sugerida", "action_type"],
               },
             },
             alerts: {
@@ -146,22 +150,40 @@ IMPORTANTE: Responda APENAS via tool retornar_analise. Os campos ad_id e ad_name
     if (!toolUse || toolUse.type !== "tool_use") throw new Error("Claude não retornou análise estruturada");
 
     const parsed = toolUse.input as {
-      proposals: Array<Omit<Proposal, "id" | "status" | "created_at">>;
+      proposals: Array<{
+        ad_id: string; ad_name: string; adset_name: string;
+        campaign_name: string; campaign_id: string;
+        verdict: string; titulo: string; diagnostico: string;
+        metricas_problema: string[]; acao_sugerida: string;
+        action_type: "pause_ad_group" | "pause_campaign" | "none";
+      }>;
       alerts: Array<Omit<Alert, "id">>;
       summary_text: string;
     };
 
+    const customerId = normalizeCustomerId(client.google.customer_id);
     const now_iso = new Date().toISOString();
     const result: AnalysisResult = {
       client_slug: clientSlug,
       analyzed_at: now_iso,
-      proposals: (parsed.proposals ?? []).map(p => ({
-        ...p,
-        action: { type: "none" as const },
-        id: randomUUID(),
-        status: "pending" as const,
-        created_at: now_iso,
-      })),
+      proposals: (parsed.proposals ?? []).map(p => {
+        let action: Proposal["action"];
+        if (p.action_type === "pause_ad_group") {
+          action = { type: "pause_google_ad_group", ad_group_id: p.ad_id, customer_id: customerId };
+        } else if (p.action_type === "pause_campaign") {
+          action = { type: "pause_google_campaign", campaign_id: p.campaign_id, customer_id: customerId };
+        } else {
+          action = { type: "none" };
+        }
+        return {
+          ...p,
+          verdict: p.verdict as Proposal["verdict"],
+          action,
+          id: randomUUID(),
+          status: "pending" as const,
+          created_at: now_iso,
+        };
+      }),
       alerts: (parsed.alerts ?? []).map(a => ({ ...a, id: randomUUID() })),
       summary_text: parsed.summary_text ?? "",
     };
