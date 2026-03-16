@@ -7,6 +7,7 @@ import ClientSelector from "./ClientSelector";
 
 const NAV_LINKS = [
   { href: "/", label: "Chat" },
+  { href: "/visao-geral", label: "Visão Geral" },
   { href: "/dashboard", label: "Dashboard" },
   { href: "/campanhas", label: "Campanhas" },
   { href: "/criar", label: "Nova Campanha" },

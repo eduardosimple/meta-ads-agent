@@ -1,46 +1,76 @@
 import { createClient } from "@supabase/supabase-js";
-import type { Client } from "@/types/client";
+import type { Client, ClientsFile } from "@/types/client";
 
-const supabaseUrl = process.env.SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_ANON_KEY!;
+const supabaseUrl = process.env.SUPABASE_URL ?? "";
+const supabaseKey = process.env.SUPABASE_ANON_KEY ?? "";
 
 function getSupabase() {
   return createClient(supabaseUrl, supabaseKey);
 }
 
-export async function getClients(): Promise<Client[]> {
+// Fallback: read clients from CLIENTS_JSON env var (JSON string)
+function getClientsFromEnv(): Client[] {
+  const raw = process.env.CLIENTS_JSON;
+  if (!raw) return [];
   try {
-    const { data, error } = await getSupabase()
-      .from("meta_ads_clients")
-      .select("*")
-      .order("nome");
-    if (error) throw error;
-    return (data ?? []).map(rowToClient);
+    const parsed = JSON.parse(raw) as ClientsFile;
+    return parsed.clientes ?? [];
   } catch {
     return [];
   }
 }
 
+export async function getClients(): Promise<Client[]> {
+  // CLIENTS_JSON takes priority — always works, no DB dependency
+  const fromEnv = getClientsFromEnv();
+  if (fromEnv.length > 0) return fromEnv;
+
+  // Fallback: Supabase
+  if (supabaseUrl && supabaseKey) {
+    try {
+      const { data, error } = await getSupabase()
+        .from("clients")
+        .select("*")
+        .order("nome");
+      if (!error && data && data.length > 0) return data.map(rowToClient);
+    } catch {
+      // ignore
+    }
+  }
+  return [];
+}
+
 export async function getClientBySlug(slug: string): Promise<Client | null> {
-  const { data, error } = await getSupabase()
-    .from("meta_ads_clients")
-    .select("*")
-    .eq("slug", slug)
-    .single();
-  if (error || !data) return null;
-  return rowToClient(data);
+  // CLIENTS_JSON takes priority
+  const fromEnv = getClientsFromEnv();
+  if (fromEnv.length > 0) return fromEnv.find((c) => c.slug === slug) ?? null;
+
+  // Fallback: Supabase
+  if (supabaseUrl && supabaseKey) {
+    try {
+      const { data, error } = await getSupabase()
+        .from("clients")
+        .select("*")
+        .eq("slug", slug)
+        .single();
+      if (!error && data) return rowToClient(data);
+    } catch {
+      // ignore
+    }
+  }
+  return null;
 }
 
 export async function upsertClient(client: Client): Promise<void> {
   const { error } = await getSupabase()
-    .from("meta_ads_clients")
+    .from("clients")
     .upsert(clientToRow(client), { onConflict: "slug" });
   if (error) throw error;
 }
 
 export async function deleteClientBySlug(slug: string): Promise<boolean> {
   const { error, count } = await getSupabase()
-    .from("meta_ads_clients")
+    .from("clients")
     .delete({ count: "exact" })
     .eq("slug", slug);
   if (error) throw error;
@@ -55,6 +85,7 @@ function rowToClient(row: Record<string, unknown>): Client {
     slug: row.slug as string,
     ativo: row.ativo as boolean,
     meta: row.meta as Client["meta"],
+    google: row.google as Client["google"] | undefined,
     contexto: row.contexto as Client["contexto"],
   };
 }
@@ -65,6 +96,7 @@ function clientToRow(client: Client) {
     slug: client.slug,
     ativo: client.ativo,
     meta: client.meta,
+    google: client.google ?? null,
     contexto: client.contexto,
   };
 }

@@ -6,9 +6,12 @@ import type { Client } from "@/types/client";
 import fs from "fs";
 import path from "path";
 
+export const maxDuration = 60;
+
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
+console.log("[chat] ANTHROPIC_API_KEY set:", !!process.env.ANTHROPIC_API_KEY, "length:", process.env.ANTHROPIC_API_KEY?.length ?? 0);
 
 const META_API_VERSION = "v19.0";
 const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
@@ -58,20 +61,22 @@ Você está rodando dentro de uma interface web com ferramentas (tools) que exec
 **NUNCA use Bash, bash, curl, Read, ou qualquer ferramenta de sistema.** Você não tem acesso a terminal ou arquivos.
 
 **Ferramentas disponíveis (use estas e somente estas):**
+- \`fazer_upload_imagem\` — baixa imagem de URL pública e faz upload para Meta (retorna image_hash)
 - \`buscar_cidade\` — busca o key de uma cidade para segmentação geográfica
 - \`criar_campanha\` — cria campanha no Meta Ads (sempre PAUSED)
 - \`criar_adset\` — cria conjunto de anúncios
-- \`criar_criativo\` — cria criativo (copy + link)
+- \`criar_criativo\` — cria criativo (copy + link + imagem opcional)
 - \`criar_anuncio\` — cria anúncio vinculando adset e criativo
 - \`ativar_campanha\` — ativa campanha após aprovação explícita do usuário
 
 **Fluxo obrigatório:**
 1. \`buscar_cidade\` (se precisar segmentar por cidade)
-2. \`criar_campanha\` → obtém campaign_id
-3. \`criar_adset\` → obtém adset_id
-4. \`criar_criativo\` → obtém creative_id
-5. \`criar_anuncio\` → usa adset_id + creative_id
-6. Apresenta resumo e pede aprovação → \`ativar_campanha\` apenas se aprovado
+2. \`fazer_upload_imagem\` (se houver imagem — antes de criar o criativo)
+3. \`criar_campanha\` → obtém campaign_id
+4. \`criar_adset\` → obtém adset_id
+5. \`criar_criativo\` → usa image_hash se disponível → obtém creative_id
+6. \`criar_anuncio\` → usa adset_id + creative_id
+7. Apresenta resumo e pede aprovação → \`ativar_campanha\` apenas se aprovado
 
 **As credenciais do cliente já estão no contexto — não precisa buscá-las.**
 `;
@@ -82,6 +87,20 @@ Você está rodando dentro de uma interface web com ferramentas (tools) que exec
 // ─── Tool definitions ────────────────────────────────────────────────────────
 
 const TOOLS: Anthropic.Tool[] = [
+  {
+    name: "fazer_upload_imagem",
+    description: "Baixa uma imagem de uma URL pública (Google Drive, S3, etc.) e faz upload para a conta de anúncios da Meta. Retorna o image_hash para usar no criativo.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        url: {
+          type: "string",
+          description: "URL pública da imagem. Para Google Drive, usar o formato: https://drive.google.com/uc?export=download&id=FILE_ID",
+        },
+      },
+      required: ["url"],
+    },
+  },
   {
     name: "buscar_cidade",
     description:
@@ -120,8 +139,12 @@ const TOOLS: Anthropic.Tool[] = [
           description:
             "Categoria especial de anúncio. Use HOUSING apenas para imóveis, NONE para todos os outros (padrão: NONE)",
         },
+        orcamento_diario_reais: {
+          type: "number",
+          description: "Orçamento diário em reais (ex: 50 para R$50). Obrigatório.",
+        },
       },
-      required: ["nome", "objetivo"],
+      required: ["nome", "objetivo", "orcamento_diario_reais"],
     },
   },
   {
@@ -278,6 +301,24 @@ async function executeTool(
   const adAccountId = client.meta.ad_account_id;
 
   switch (toolName) {
+    case "fazer_upload_imagem": {
+      const imageUrl = String(input.url).replace("export=view", "export=download");
+      const imgRes = await fetch(imageUrl, { redirect: "follow" });
+      if (!imgRes.ok) throw new Error(`Falha ao baixar imagem: HTTP ${imgRes.status}`);
+      const contentType = imgRes.headers.get("content-type") ?? "image/jpeg";
+      const buffer = await imgRes.arrayBuffer();
+      const ext = contentType.includes("png") ? "png" : contentType.includes("gif") ? "gif" : "jpg";
+      const metaForm = new FormData();
+      metaForm.append("access_token", accessToken);
+      metaForm.append("filename", new File([buffer], `upload.${ext}`, { type: contentType }), `upload.${ext}`);
+      const upRes = await fetch(`${META_API_BASE}/${adAccountId}/adimages`, { method: "POST", body: metaForm });
+      const upData = await upRes.json() as { images?: Record<string, { hash: string; url: string }>; error?: { message: string } };
+      if (!upRes.ok || upData.error) throw new Error(upData.error?.message ?? "Erro no upload da imagem");
+      const imageKey = Object.keys(upData.images!)[0];
+      const { hash, url: metaUrl } = upData.images![imageKey];
+      return { image_hash: hash, url: metaUrl };
+    }
+
     case "buscar_cidade": {
       const query = encodeURIComponent(String(input.nome));
       const url = `${META_API_BASE}/search?type=adgeolocation&q=${query}&location_types=%5B%22city%22%5D&country_code=BR&access_token=${accessToken}`;
@@ -301,19 +342,19 @@ async function executeTool(
 
     case "criar_campanha": {
       const specialCat = String(input.categoria_especial ?? "NONE");
-      // No daily_budget here — budget goes on the adset (works for all account types)
-      const payload = {
-        name: input.nome,
-        objective: input.objetivo,
-        status: "PAUSED",
-        special_ad_categories:
-          specialCat === "NONE" ? [] : [specialCat],
-        access_token: accessToken,
-      };
+      const dailyBudgetReais = Number(input.orcamento_diario_reais ?? 10);
+      // ABO: budget on adset, is_adset_budget_sharing_enabled=false, no campaign budget
+      const formData = new URLSearchParams();
+      formData.set("name", String(input.nome));
+      formData.set("objective", String(input.objetivo));
+      formData.set("status", "PAUSED");
+      formData.set("special_ad_categories", JSON.stringify(specialCat === "NONE" ? [] : [specialCat]));
+      formData.set("is_adset_budget_sharing_enabled", "false");
+      formData.set("access_token", accessToken);
+      console.log("[criar_campanha] form params:", formData.toString().replace(accessToken, "[redacted]"));
       const res = await fetch(`${META_API_BASE}/${adAccountId}/campaigns`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: formData,
       });
       const data = (await res.json()) as {
         id?: string;
@@ -331,11 +372,13 @@ async function executeTool(
       if (input.idade_maxima) targetingSpec.age_max = input.idade_maxima;
 
       if (input.cidade_key) {
+        // Meta requires minimum 25km radius for Brazilian cities
+        const radius = Math.max(Number(input.raio_km ?? 25), 25);
         targetingSpec.geo_locations = {
           cities: [
             {
               key: input.cidade_key,
-              radius: input.raio_km ?? 10,
+              radius,
               distance_unit: "kilometer",
             },
           ],
@@ -344,11 +387,15 @@ async function executeTool(
         targetingSpec.geo_locations = { countries: ["BR"] };
       }
 
+      // Required by Meta: explicitly enable or disable Advantage Audience
+      targetingSpec.targeting_automation = { advantage_audience: 0 };
+
       // Derive optimization_goal from campaign objective unless overridden
+      // OUTCOME_SALES uses LINK_CLICKS to avoid bid strategy requirements
       const objectiveGoalMap: Record<string, string> = {
         OUTCOME_LEADS: "LEAD_GENERATION",
         OUTCOME_TRAFFIC: "LINK_CLICKS",
-        OUTCOME_SALES: "OFFSITE_CONVERSIONS",
+        OUTCOME_SALES: "LINK_CLICKS",
         OUTCOME_AWARENESS: "REACH",
       };
       const campaignObj = String(input.campaign_objetivo ?? "OUTCOME_TRAFFIC");
@@ -362,6 +409,7 @@ async function executeTool(
         status: "PAUSED",
         optimization_goal: optGoal,
         billing_event: "IMPRESSIONS",
+        bid_strategy: "LOWEST_COST_WITHOUT_CAP",
         daily_budget: String(Math.round(Math.max(Number(input.orcamento_diario_reais) || 10, 6) * 100)),
         targeting: targetingSpec,
         access_token: accessToken,
@@ -588,9 +636,10 @@ export async function POST(req: NextRequest) {
 
           controller.close();
         } catch (err) {
-          const msg = err instanceof Error ? err.message : "Erro interno";
-          console.error("[chat] stream error:", msg);
-          controller.enqueue(encoder.encode(`\n\n⚠️ Erro: ${msg}`));
+          const msg = err instanceof Error ? err.message : String(err);
+          const detail = err instanceof Error && err.cause ? ` | cause: ${JSON.stringify(err.cause)}` : "";
+          console.error("[chat] stream error:", msg, detail);
+          controller.enqueue(encoder.encode(`\n\n⚠️ Erro: ${msg}${detail}`));
           controller.close();
         }
       },

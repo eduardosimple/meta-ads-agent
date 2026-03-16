@@ -7,6 +7,15 @@ export interface ClientMeta {
   page_name: string;
 }
 
+export interface ClientGoogle {
+  customer_id: string;           // e.g. "123-456-7890" or "1234567890"
+  developer_token: string;       // sensitive
+  client_id: string;
+  client_secret: string;         // sensitive
+  refresh_token: string;         // sensitive
+  manager_customer_id?: string;  // MCC login-customer-id (optional)
+}
+
 export interface ClientContexto {
   segmento: string;
   cidade: string;
@@ -21,6 +30,7 @@ export interface Client {
   slug: string;
   ativo: boolean;
   meta: ClientMeta;
+  google?: ClientGoogle;
   contexto: ClientContexto;
 }
 
@@ -34,5 +44,6 @@ export interface ClientPublic {
   slug: string;
   ativo: boolean;
   meta: Omit<ClientMeta, "access_token" | "app_secret">;
+  google?: Pick<ClientGoogle, "customer_id" | "manager_customer_id">;
   contexto: ClientContexto;
 }

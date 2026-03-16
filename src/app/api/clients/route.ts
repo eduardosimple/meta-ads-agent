@@ -19,6 +19,9 @@ function toPublic(client: Client): ClientPublic {
       page_id: client.meta.page_id,
       page_name: client.meta.page_name,
     },
+    google: client.google
+      ? { customer_id: client.google.customer_id, manager_customer_id: client.google.manager_customer_id }
+      : undefined,
     contexto: client.contexto,
   };
 }
@@ -64,8 +67,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "nome e slug são obrigatórios" }, { status: 400 });
   }
 
-  await upsertClient(body);
-  return NextResponse.json({ success: true, client: toPublic(body) }, { status: 201 });
+  try {
+    await upsertClient(body);
+    return NextResponse.json({ success: true, client: toPublic(body) }, { status: 201 });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : JSON.stringify(e);
+    console.error("[POST /api/clients] upsertClient error:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }
 
 export async function PUT(req: NextRequest) {
@@ -79,8 +88,14 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "slug é obrigatório" }, { status: 400 });
   }
 
-  await upsertClient(body);
-  return NextResponse.json({ success: true, client: toPublic(body) });
+  try {
+    await upsertClient(body);
+    return NextResponse.json({ success: true, client: toPublic(body) });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[PUT /api/clients] upsertClient error:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }
 
 export async function DELETE(req: NextRequest) {

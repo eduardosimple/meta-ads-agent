@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useAppContext } from "@/context/AppContext";
-import type { Client } from "@/types/client";
+import type { Client, ClientGoogle } from "@/types/client";
 
 interface Props {
   client?: Client | null;
@@ -33,8 +33,13 @@ export default function ClientForm({ client, onSuccess, onCancel }: Props) {
 
   const [showToken, setShowToken] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
+  const [showGoogleSecrets, setShowGoogleSecrets] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Platform selection
+  const [hasMeta, setHasMeta] = useState(true);
+  const [hasGoogle, setHasGoogle] = useState(false);
 
   const [form, setForm] = useState<Client>({
     nome: "",
@@ -59,11 +64,15 @@ export default function ClientForm({ client, onSuccess, onCancel }: Props) {
   });
 
   useEffect(() => {
-    if (client) setForm(client);
+    if (client) {
+      setForm(client);
+      setHasMeta(true);
+      setHasGoogle(!!client.google);
+    }
   }, [client]);
 
   function handleChange<T extends object>(
-    section: "root" | "meta" | "contexto",
+    section: "root" | "meta" | "contexto" | "google",
     key: string,
     value: T[keyof T] | string | number | boolean
   ) {
@@ -77,6 +86,11 @@ export default function ClientForm({ client, onSuccess, onCancel }: Props) {
       });
     } else if (section === "meta") {
       setForm((prev) => ({ ...prev, meta: { ...prev.meta, [key]: value } }));
+    } else if (section === "google") {
+      setForm((prev) => ({
+        ...prev,
+        google: { ...(prev.google ?? emptyGoogle), [key]: value } as ClientGoogle,
+      }));
     } else {
       setForm((prev) => ({
         ...prev,
@@ -85,18 +99,26 @@ export default function ClientForm({ client, onSuccess, onCancel }: Props) {
     }
   }
 
+  const emptyGoogle: ClientGoogle = {
+    customer_id: "", developer_token: "", client_id: "", client_secret: "", refresh_token: "",
+  };
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);
     try {
+      const payload = {
+        ...form,
+        google: hasGoogle ? form.google : undefined,
+      };
       const res = await fetch("/api/clients", {
         method: isEdit ? "PUT" : "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Erro ao salvar");
@@ -118,6 +140,56 @@ export default function ClientForm({ client, onSuccess, onCancel }: Props) {
           {error}
         </div>
       )}
+
+      {/* Plataformas */}
+      <section>
+        <h3 className="text-sm font-semibold text-gray-700 mb-3 pb-2 border-b border-gray-100">
+          Plataformas de Anúncio
+        </h3>
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={() => setHasMeta(v => !v)}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 text-sm font-medium transition-all ${
+              hasMeta
+                ? "border-blue-500 bg-blue-50 text-blue-700"
+                : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
+            }`}
+          >
+            <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="currentColor">
+              <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+            </svg>
+            Meta Ads
+            {hasMeta && <span className="text-blue-500 text-xs">✓</span>}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setHasGoogle(v => {
+                if (!v && !form.google) setForm(prev => ({ ...prev, google: emptyGoogle }));
+                return !v;
+              });
+            }}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 text-sm font-medium transition-all ${
+              hasGoogle
+                ? "border-green-500 bg-green-50 text-green-700"
+                : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
+            }`}
+          >
+            <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none">
+              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
+              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+            </svg>
+            Google Ads
+            {hasGoogle && <span className="text-green-500 text-xs">✓</span>}
+          </button>
+        </div>
+        {!hasMeta && !hasGoogle && (
+          <p className="text-xs text-amber-600 mt-2">Selecione ao menos uma plataforma.</p>
+        )}
+      </section>
 
       {/* Dados básicos */}
       <section>
@@ -162,7 +234,7 @@ export default function ClientForm({ client, onSuccess, onCancel }: Props) {
       </section>
 
       {/* Meta API */}
-      <section>
+      {hasMeta && <section>
         <h3 className="text-sm font-semibold text-gray-700 mb-3 pb-2 border-b border-gray-100">
           Credenciais Meta API
         </h3>
@@ -278,7 +350,120 @@ export default function ClientForm({ client, onSuccess, onCancel }: Props) {
             </div>
           </div>
         </div>
-      </section>
+      </section>}
+
+      {/* Google Ads */}
+      {hasGoogle && <section>
+        <h3 className="text-sm font-semibold text-gray-700 mb-3 pb-2 border-b border-gray-100 flex items-center gap-2">
+          <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none">
+            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
+            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+          </svg>
+          Credenciais Google Ads
+          {form.google?.customer_id && (
+            <span className="text-xs font-normal text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full">configurado</span>
+          )}
+          <span className="text-xs font-normal text-gray-400 ml-auto">Pode preencher agora ou depois</span>
+        </h3>
+        <div className="space-y-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Customer ID</label>
+              <input
+                type="text"
+                value={form.google?.customer_id ?? ""}
+                onChange={(e) => handleChange("google", "customer_id", e.target.value)}
+                className={inputClass}
+                placeholder="123-456-7890"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Developer Token</label>
+              <div className="relative">
+                <input
+                  type={showGoogleSecrets["dev_token"] ? "text" : "password"}
+                  value={form.google?.developer_token ?? ""}
+                  onChange={(e) => handleChange("google", "developer_token", e.target.value)}
+                  className={`${inputClass} pr-10`}
+                  placeholder={isEdit ? "••••••••" : "xxxxxxxxxxxxxxxx"}
+                />
+                <button type="button" onClick={() => setShowGoogleSecrets(v => ({ ...v, dev_token: !v["dev_token"] }))}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                    <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
+                    <path fillRule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Client ID (OAuth2)</label>
+                <input
+                  type="text"
+                  value={form.google?.client_id ?? ""}
+                  onChange={(e) => handleChange("google", "client_id", e.target.value)}
+                  className={inputClass}
+                  placeholder="xxxxx.apps.googleusercontent.com"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Client Secret</label>
+                <div className="relative">
+                  <input
+                    type={showGoogleSecrets["client_secret"] ? "text" : "password"}
+                    value={form.google?.client_secret ?? ""}
+                    onChange={(e) => handleChange("google", "client_secret", e.target.value)}
+                    className={`${inputClass} pr-10`}
+                    placeholder={isEdit ? "••••••••" : "GOCSPX-..."}
+                  />
+                  <button type="button" onClick={() => setShowGoogleSecrets(v => ({ ...v, client_secret: !v["client_secret"] }))}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                      <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
+                      <path fillRule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Refresh Token</label>
+              <div className="relative">
+                <input
+                  type={showGoogleSecrets["refresh_token"] ? "text" : "password"}
+                  value={form.google?.refresh_token ?? ""}
+                  onChange={(e) => handleChange("google", "refresh_token", e.target.value)}
+                  className={`${inputClass} pr-10`}
+                  placeholder={isEdit ? "••••••••" : "1//04xxxxx..."}
+                />
+                <button type="button" onClick={() => setShowGoogleSecrets(v => ({ ...v, refresh_token: !v["refresh_token"] }))}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                    <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
+                    <path fillRule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Manager Customer ID (MCC — opcional)</label>
+              <input
+                type="text"
+                value={form.google?.manager_customer_id ?? ""}
+                onChange={(e) => handleChange("google", "manager_customer_id", e.target.value)}
+                className={inputClass}
+                placeholder="000-000-0000 (deixe vazio se não usar MCC)"
+              />
+            </div>
+
+        </div>
+      </section>}
 
       {/* Contexto */}
       <section>

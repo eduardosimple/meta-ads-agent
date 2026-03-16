@@ -5,7 +5,7 @@ import { useAppContext } from "@/context/AppContext";
 import MetricCard from "@/components/dashboard/MetricCard";
 import PerformanceChart from "@/components/dashboard/PerformanceChart";
 import DateRangePicker from "@/components/dashboard/DateRangePicker";
-import type { MetricsResponse } from "@/types/metrics";
+import type { MetricsResponse, AnalysisResult, Proposal } from "@/types/metrics";
 
 function getDefaultDates() {
   const to = new Date();
@@ -28,6 +28,20 @@ function formatNumber(value: number): string {
 function formatPercent(value: number): string {
   return `${value.toFixed(2)}%`;
 }
+
+const verdictConfig: Record<string, { label: string; color: string; emoji: string }> = {
+  escalar: { label: "Escalar", color: "bg-green-100 text-green-800", emoji: "✅" },
+  manter: { label: "Manter", color: "bg-blue-100 text-blue-800", emoji: "⏸️" },
+  testar_variacao: { label: "Testar Variação", color: "bg-purple-100 text-purple-800", emoji: "🔄" },
+  ajustar: { label: "Ajustar", color: "bg-yellow-100 text-yellow-800", emoji: "⚠️" },
+  pausar: { label: "Pausar", color: "bg-red-100 text-red-800", emoji: "❌" },
+};
+
+const alertConfig = {
+  info: { bg: "bg-blue-50", border: "border-blue-200", text: "text-blue-800", icon: "ℹ️" },
+  warning: { bg: "bg-yellow-50", border: "border-yellow-200", text: "text-yellow-800", icon: "⚠️" },
+  critical: { bg: "bg-red-50", border: "border-red-200", text: "text-red-800", icon: "🚨" },
+};
 
 const SpendIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
@@ -61,26 +75,57 @@ const CPLIcon = () => (
   </svg>
 );
 
+function storageKey(slug: string) {
+  return `analysis_history_${slug}`;
+}
+
+function loadHistory(slug: string): Proposal[] {
+  try {
+    const raw = localStorage.getItem(storageKey(slug));
+    return raw ? (JSON.parse(raw) as Proposal[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(slug: string, proposals: Proposal[]) {
+  const resolved = proposals.filter(p => p.status !== "pending");
+  // Keep only last 50 resolved proposals
+  const trimmed = resolved.slice(-50);
+  localStorage.setItem(storageKey(slug), JSON.stringify(trimmed));
+}
+
+type Platform = "meta" | "google";
+
+function platformStorageKey(slug: string, platform: Platform) {
+  return platform === "google" ? `analysis_history_google_${slug}` : `analysis_history_${slug}`;
+}
+
 export default function DashboardPage() {
   const { token, selectedClient } = useAppContext();
   const { from: defaultFrom, to: defaultTo } = getDefaultDates();
+  const [platform, setPlatform] = useState<Platform>("meta");
   const [dateFrom, setDateFrom] = useState(defaultFrom);
   const [dateTo, setDateTo] = useState(defaultTo);
   const [metrics, setMetrics] = useState<MetricsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [history, setHistory] = useState<Proposal[]>([]);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
 
   const fetchMetrics = useCallback(async () => {
     if (!token || !selectedClient) return;
     setLoading(true);
     setError(null);
+    setMetrics(null);
     try {
-      const params = new URLSearchParams({
-        clientSlug: selectedClient.slug,
-        dateFrom,
-        dateTo,
-      });
-      const res = await fetch(`/api/meta/metrics?${params}`, {
+      const params = new URLSearchParams({ clientSlug: selectedClient.slug, dateFrom, dateTo });
+      const endpoint = platform === "google" ? "/api/google/metrics" : "/api/meta/metrics";
+      const res = await fetch(`${endpoint}?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -91,11 +136,87 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, selectedClient, dateFrom, dateTo]);
+  }, [token, selectedClient, dateFrom, dateTo, platform]);
 
   useEffect(() => {
     fetchMetrics();
-  }, [fetchMetrics]);
+    setAnalysis(null);
+    setProposals([]);
+    if (selectedClient) {
+      setHistory(loadHistory(platformStorageKey(selectedClient.slug, platform)));
+    }
+  }, [fetchMetrics, selectedClient, platform]);
+
+  async function runAnalysis() {
+    if (!token || !selectedClient) return;
+    setAnalyzing(true);
+    setAnalysisError(null);
+    try {
+      const endpoint = platform === "google" ? "/api/google/analysis" : "/api/analysis";
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ clientSlug: selectedClient.slug }),
+      });
+      const data: AnalysisResult = await res.json();
+      if (!res.ok) throw new Error((data as unknown as { error: string }).error ?? "Erro na análise");
+      setAnalysis(data);
+      setProposals(data.proposals.filter(p => p.status === "pending"));
+    } catch (err) {
+      setAnalysisError(err instanceof Error ? err.message : "Erro na análise");
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
+  function persistResolved(updated: Proposal[]) {
+    if (!selectedClient) return;
+    const key = platformStorageKey(selectedClient.slug, platform);
+    const allHistory = [
+      ...loadHistory(key).filter(h => !updated.find(u => u.id === h.id)),
+      ...updated.filter(p => p.status !== "pending"),
+    ];
+    saveHistory(key, allHistory);
+    setHistory(allHistory);
+  }
+
+  async function approveProposal(proposal: Proposal) {
+    if (!token || !selectedClient) return;
+    setApprovingId(proposal.id);
+    try {
+      const res = await fetch("/api/proposals/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ clientSlug: selectedClient.slug, action: proposal.action }),
+      });
+      const data = await res.json();
+      const resolved_at = new Date().toISOString();
+      const errMsg = !res.ok ? (data.error ?? "Erro ao aprovar") : null;
+      const resultMsg = errMsg
+        ? `Erro: ${errMsg}`
+        : (data.message ?? (proposal.action.type === "none" ? "Registrado" : "Ação aplicada com sucesso"));
+      const resolved = { ...proposal, status: "approved" as const, resolved_at, result_message: resultMsg };
+      setProposals(prev => prev.map(p => p.id === proposal.id ? resolved : p));
+      persistResolved([resolved]);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Erro ao aprovar proposta";
+      const resolved = { ...proposal, status: "approved" as const, resolved_at: new Date().toISOString(), result_message: `Erro: ${errMsg}` };
+      setProposals(prev => prev.map(p => p.id === proposal.id ? resolved : p));
+      persistResolved([resolved]);
+    } finally {
+      setApprovingId(null);
+    }
+  }
+
+  function rejectProposal(id: string) {
+    const resolved_at = new Date().toISOString();
+    setProposals(prev => {
+      const updated = prev.map(p => p.id === id ? { ...p, status: "ignored" as const, resolved_at } : p);
+      const resolvedProposal = updated.find(p => p.id === id);
+      if (resolvedProposal) persistResolved([resolvedProposal]);
+      return updated;
+    });
+  }
 
   if (!selectedClient) {
     return (
@@ -119,12 +240,43 @@ export default function DashboardPage() {
           <h1 className="text-xl font-bold text-gray-900">Dashboard</h1>
           <p className="text-sm text-gray-500">{selectedClient.nome}</p>
         </div>
-        <DateRangePicker
-          dateFrom={dateFrom}
-          dateTo={dateTo}
-          onChangeFrom={setDateFrom}
-          onChangeTo={setDateTo}
-        />
+
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Platform toggle — only show if client has Google Ads configured */}
+          {selectedClient.google && (
+            <div className="flex bg-gray-100 rounded-xl p-1 gap-1">
+              <button
+                onClick={() => setPlatform("meta")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  platform === "meta" ? "bg-white shadow text-blue-600" : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                <span className="text-sm">f</span> Meta
+              </button>
+              <button
+                onClick={() => setPlatform("google")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  platform === "google" ? "bg-white shadow text-blue-600" : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                <svg viewBox="0 0 20 20" className="w-3.5 h-3.5" fill="none">
+                  <path d="M19.5 10.2c0-.65-.06-1.28-.17-1.88H10v3.56h5.33c-.23 1.14-.92 2.1-1.96 2.74v2.28h3.17c1.85-1.7 2.96-4.2 2.96-6.7z" fill="#4285F4"/>
+                  <path d="M10 20c2.67 0 4.92-.88 6.56-2.38l-3.17-2.28c-.88.59-2 .94-3.39.94-2.6 0-4.81-1.76-5.6-4.12H1.13v2.35C2.77 17.84 6.14 20 10 20z" fill="#34A853"/>
+                  <path d="M4.4 12.16A5.63 5.63 0 014.1 10c0-.75.13-1.48.3-2.16V5.49H1.13A9.99 9.99 0 000 10c0 1.6.38 3.1 1.13 4.51L4.4 12.16z" fill="#FBBC05"/>
+                  <path d="M10 3.97c1.48 0 2.8.51 3.85 1.5l2.87-2.87C14.92 1.09 12.67 0 10 0 6.14 0 2.77 2.16 1.13 5.49l3.27 2.35C5.19 5.73 7.4 3.97 10 3.97z" fill="#EA4335"/>
+                </svg>
+                Google
+              </button>
+            </div>
+          )}
+
+          <DateRangePicker
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onChangeFrom={setDateFrom}
+            onChangeTo={setDateTo}
+          />
+        </div>
       </div>
 
       {error && (
@@ -157,9 +309,9 @@ export default function DashboardPage() {
         />
         <MetricCard
           icon={<CPLIcon />}
-          label="CPL"
+          label={platform === "google" ? "Custo/Conversão" : "CPL"}
           value={s ? (s.cpl > 0 ? formatCurrency(s.cpl) : "—") : loading ? "..." : "—"}
-          changeLabel={s && s.total_leads > 0 ? `${s.total_leads} leads` : undefined}
+          changeLabel={s && s.total_leads > 0 ? `${s.total_leads} ${platform === "google" ? "conversões" : "leads"}` : undefined}
         />
       </div>
 
@@ -177,6 +329,208 @@ export default function DashboardPage() {
           </div>
         ) : (
           <PerformanceChart data={metrics?.daily ?? []} />
+        )}
+      </div>
+
+      {/* Analysis Section */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-700">Análise e Otimizações</h2>
+            {analysis && (
+              <p className="text-xs text-gray-400 mt-0.5">
+                Analisado em {new Date(analysis.analyzed_at).toLocaleString("pt-BR")}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={runAnalysis}
+            disabled={analyzing}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {analyzing ? (
+              <>
+                <div className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                Analisando...
+              </>
+            ) : (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                  <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H3.989a.75.75 0 00-.75.75v4.242a.75.75 0 001.5 0v-2.43l.31.31a7 7 0 0011.712-3.138.75.75 0 00-1.449-.39zm1.23-3.723a.75.75 0 00.219-.53V2.929a.75.75 0 00-1.5 0V5.36l-.31-.31A7 7 0 003.239 8.188a.75.75 0 101.448.389A5.5 5.5 0 0113.89 6.11l.311.31h-2.432a.75.75 0 000 1.5h4.243a.75.75 0 00.53-.219z" clipRule="evenodd" />
+                </svg>
+                Analisar Campanhas
+              </>
+            )}
+          </button>
+        </div>
+
+        {analysisError && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600">
+            {analysisError}
+          </div>
+        )}
+
+        {!analysis && !analyzing && (
+          <p className="text-sm text-gray-400 text-center py-6">
+            Clique em &quot;Analisar Campanhas&quot; para gerar diagnóstico e propostas de otimização com base nos últimos 7 dias.
+          </p>
+        )}
+
+        {analysis && (
+          <>
+            {/* Summary */}
+            <div className="bg-gray-50 rounded-xl p-4 text-sm text-gray-700">
+              {analysis.summary_text}
+            </div>
+
+            {/* Alerts */}
+            {analysis.alerts.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Alertas</h3>
+                {analysis.alerts.map(alert => {
+                  const cfg = alertConfig[alert.level];
+                  return (
+                    <div key={alert.id} className={`${cfg.bg} ${cfg.border} border rounded-xl p-3`}>
+                      <div className="flex items-start gap-2">
+                        <span>{cfg.icon}</span>
+                        <div>
+                          <p className={`text-sm font-medium ${cfg.text}`}>{alert.title}</p>
+                          <p className={`text-xs ${cfg.text} opacity-80 mt-0.5`}>{alert.message}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Pending Proposals */}
+            {proposals.filter(p => p.status === "pending").length > 0 && (
+              <div className="space-y-3">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  Propostas de Otimização ({proposals.filter(p => p.status === "pending").length})
+                </h3>
+                {proposals.filter(p => p.status === "pending").map(proposal => {
+                  const cfg = verdictConfig[proposal.verdict] ?? verdictConfig.manter;
+                  const isApproving = approvingId === proposal.id;
+                  return (
+                    <div key={proposal.id} className="border border-gray-200 rounded-xl p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.color}`}>
+                              {cfg.emoji} {cfg.label}
+                            </span>
+                            <span className="text-sm font-medium text-gray-800">{proposal.titulo}</span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {proposal.ad_name} · {proposal.adset_name}
+                          </p>
+                        </div>
+                      </div>
+
+                      <p className="text-sm text-gray-600">{proposal.diagnostico}</p>
+
+                      {proposal.metricas_problema.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {proposal.metricas_problema.map((m, i) => (
+                            <span key={i} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+                              {m}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="bg-blue-50 rounded-lg p-3">
+                        <p className="text-xs font-medium text-blue-700">Ação sugerida</p>
+                        <p className="text-sm text-blue-900 mt-0.5">{proposal.acao_sugerida}</p>
+                      </div>
+
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          onClick={() => approveProposal(proposal)}
+                          disabled={isApproving}
+                          className="flex-1 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+                        >
+                          {isApproving ? "Aplicando..." : proposal.action.type === "none" ? "✓ Registrar" : "✓ Aprovar e Aplicar"}
+                        </button>
+                        <button
+                          onClick={() => rejectProposal(proposal.id)}
+                          disabled={isApproving}
+                          className="flex-1 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors"
+                        >
+                          ✕ Ignorar
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {proposals.filter(p => p.status === "pending").length === 0 && analysis.proposals.length === 0 && (
+              <p className="text-sm text-gray-500 text-center py-4">
+                Nenhuma proposta de otimização necessária no momento.
+              </p>
+            )}
+
+            {/* History (persisted across sessions) */}
+            {history.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  Histórico de Otimizações ({history.length})
+                </h3>
+                {[...history].reverse().map(proposal => {
+                  const cfg = verdictConfig[proposal.verdict] ?? verdictConfig.manter;
+                  const isApproved = proposal.status === "approved";
+                  const hasError = isApproved && proposal.result_message?.startsWith("Erro:");
+                  return (
+                    <div
+                      key={proposal.id}
+                      className={`border rounded-xl p-3 space-y-1.5 opacity-80 ${
+                        hasError
+                          ? "border-red-200 bg-red-50"
+                          : isApproved
+                          ? "border-green-200 bg-green-50"
+                          : "border-gray-200 bg-gray-50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.color}`}>
+                            {cfg.emoji} {cfg.label}
+                          </span>
+                          <span className="text-sm font-medium text-gray-700">{proposal.titulo}</span>
+                        </div>
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                          hasError
+                            ? "bg-red-100 text-red-700"
+                            : isApproved
+                            ? "bg-green-100 text-green-700"
+                            : "bg-gray-200 text-gray-500"
+                        }`}>
+                          {hasError ? "Erro" : isApproved ? "Aplicado" : "Ignorado"}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        {proposal.ad_name} · {proposal.adset_name}
+                      </p>
+                      {proposal.result_message && (
+                        <p className={`text-xs ${hasError ? "text-red-600" : "text-green-700"}`}>
+                          {proposal.result_message}
+                        </p>
+                      )}
+                      {proposal.resolved_at && (
+                        <p className="text-xs text-gray-400">
+                          {new Date(proposal.resolved_at).toLocaleString("pt-BR")}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
