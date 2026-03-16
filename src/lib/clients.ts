@@ -65,7 +65,7 @@ export async function upsertClient(client: Client): Promise<void> {
   const { error } = await getSupabase()
     .from("clients")
     .upsert(clientToRow(client), { onConflict: "slug" });
-  if (error) throw error;
+  if (error) throw new Error(error.message ?? JSON.stringify(error));
 }
 
 export async function deleteClientBySlug(slug: string): Promise<boolean> {
@@ -73,7 +73,7 @@ export async function deleteClientBySlug(slug: string): Promise<boolean> {
     .from("clients")
     .delete({ count: "exact" })
     .eq("slug", slug);
-  if (error) throw error;
+  if (error) throw new Error(error.message ?? JSON.stringify(error));
   return (count ?? 0) > 0;
 }
 
