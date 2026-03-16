@@ -90,12 +90,9 @@ export async function GET(req: NextRequest) {
       }
 
       await saveReport(report);
-      const sb = (await import("@supabase/supabase-js")).createClient(
-        process.env.SUPABASE_URL ?? "",
-        process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_ANON_KEY ?? ""
-      );
-      const { data: check, error: checkErr } = await sb.from("daily_reports").select("id").eq("client_slug", client.slug).eq("date", today).single();
-      results.push({ client: client.slug, status: "ok", date: today, saved: !!check, saveErr: checkErr?.message ?? null });
+      const svcKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+      const anonKey = process.env.SUPABASE_ANON_KEY ?? "";
+      results.push({ client: client.slug, status: "ok", date: today, svcKeyLen: svcKey.length, anonKeyLen: anonKey.length, svcKeyStart: svcKey.slice(0,20) });
     } catch (e) {
       console.error(`[cron] error for ${client.slug}:`, e);
       results.push({ client: client.slug, status: "error" });
