@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getAuthFromRequest } from "@/lib/auth";
 import { getClientBySlug } from "@/lib/clients";
+import { getGoogleCampaignsWithMetrics, setGoogleCampaignBudgetAmount, setGoogleCampaignStatus, pauseGoogleAdGroup } from "@/lib/google-ads-api";
 import type { Client } from "@/types/client";
 import fs from "fs";
 import path from "path";
@@ -34,9 +35,10 @@ async function buildSystemPrompt(clientSlug: string): Promise<string> {
     clientContext = `
 ## Cliente Ativo: ${client.nome}
 
-**Conta de Anúncios:** ${client.meta.ad_account_id}
+**Meta Ads — Conta de Anúncios:** ${client.meta.ad_account_id}
 **Página:** ${client.meta.page_name} (ID: ${client.meta.page_id})
 **App ID:** ${client.meta.app_id}
+${client.google ? `\n**Google Ads — Customer ID:** ${client.google.customer_id}` : ""}
 
 **Contexto do Cliente:**
 - Segmento: ${client.contexto.segmento}
@@ -51,16 +53,18 @@ async function buildSystemPrompt(clientSlug: string): Promise<string> {
       "\n## Nenhum cliente selecionado\nAguardando seleção de cliente para iniciar operações.\n";
   }
 
+  const hasGoogle = !!client?.google;
+
   const webInstructions = `
 ---
 
 ## INSTRUÇÕES DO AMBIENTE WEB
 
-Você está rodando dentro de uma interface web com ferramentas (tools) que executam operações reais na Meta API.
+Você está rodando dentro de uma interface web com ferramentas (tools) que executam operações reais nas APIs de anúncios.
 
 **NUNCA use Bash, bash, curl, Read, ou qualquer ferramenta de sistema.** Você não tem acesso a terminal ou arquivos.
 
-**Ferramentas disponíveis (use estas e somente estas):**
+**Ferramentas Meta Ads disponíveis:**
 - \`fazer_upload_imagem\` — baixa imagem de URL pública e faz upload para Meta (retorna image_hash)
 - \`buscar_cidade\` — busca o key de uma cidade para segmentação geográfica
 - \`criar_campanha\` — cria campanha no Meta Ads (sempre PAUSED)
@@ -68,8 +72,18 @@ Você está rodando dentro de uma interface web com ferramentas (tools) que exec
 - \`criar_criativo\` — cria criativo (copy + link + imagem opcional)
 - \`criar_anuncio\` — cria anúncio vinculando adset e criativo
 - \`ativar_campanha\` — ativa campanha após aprovação explícita do usuário
+${hasGoogle ? `
+**Ferramentas Google Ads disponíveis:**
+- \`listar_campanhas_google\` — lista campanhas Google Ads com métricas dos últimos 7 dias
+- \`ajustar_orcamento_google\` — define o orçamento diário de uma campanha Google Ads
+- \`pausar_campanha_google\` — pausa uma campanha Google Ads
+- \`ativar_campanha_google\` — ativa uma campanha Google Ads
+- \`pausar_grupo_anuncios_google\` — pausa um grupo de anúncios Google Ads
 
-**Fluxo obrigatório:**
+**Para operações Google Ads:** use \`listar_campanhas_google\` primeiro para obter os IDs das campanhas quando o usuário não especificar o ID.
+` : ""}
+
+**Fluxo obrigatório para criar campanha Meta:**
 1. \`buscar_cidade\` (se precisar segmentar por cidade)
 2. \`fazer_upload_imagem\` (se houver imagem — antes de criar o criativo)
 3. \`criar_campanha\` → obtém campaign_id
@@ -267,12 +281,64 @@ const TOOLS: Anthropic.Tool[] = [
     input_schema: {
       type: "object" as const,
       properties: {
-        campaign_id: {
-          type: "string",
-          description: "ID da campanha a ativar",
-        },
+        campaign_id: { type: "string", description: "ID da campanha a ativar" },
       },
       required: ["campaign_id"],
+    },
+  },
+  // ── Google Ads tools ──
+  {
+    name: "listar_campanhas_google",
+    description: "Lista todas as campanhas Google Ads do cliente com métricas agregadas dos últimos 7 dias (gasto, cliques, CTR, conversões, custo/conversão). Use para obter IDs de campanhas antes de outras operações.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "ajustar_orcamento_google",
+    description: "Define o orçamento diário de uma campanha Google Ads para um valor específico em reais. Requer confirmação do usuário antes de executar.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        campaign_id: { type: "string", description: "ID numérico da campanha Google Ads" },
+        campaign_name: { type: "string", description: "Nome da campanha (para confirmação)" },
+        orcamento_diario_reais: { type: "number", description: "Novo orçamento diário em reais (ex: 30 para R$30,00)" },
+      },
+      required: ["campaign_id", "campaign_name", "orcamento_diario_reais"],
+    },
+  },
+  {
+    name: "pausar_campanha_google",
+    description: "Pausa uma campanha Google Ads. Requer confirmação do usuário antes de executar.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        campaign_id: { type: "string", description: "ID numérico da campanha Google Ads" },
+        campaign_name: { type: "string", description: "Nome da campanha (para confirmação)" },
+      },
+      required: ["campaign_id", "campaign_name"],
+    },
+  },
+  {
+    name: "ativar_campanha_google",
+    description: "Ativa uma campanha Google Ads pausada. Requer confirmação do usuário antes de executar.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        campaign_id: { type: "string", description: "ID numérico da campanha Google Ads" },
+        campaign_name: { type: "string", description: "Nome da campanha (para confirmação)" },
+      },
+      required: ["campaign_id", "campaign_name"],
+    },
+  },
+  {
+    name: "pausar_grupo_anuncios_google",
+    description: "Pausa um grupo de anúncios Google Ads. Requer confirmação do usuário antes de executar.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        ad_group_id: { type: "string", description: "ID numérico do grupo de anúncios" },
+        ad_group_name: { type: "string", description: "Nome do grupo (para confirmação)" },
+      },
+      required: ["ad_group_id", "ad_group_name"],
     },
   },
 ];
@@ -524,6 +590,46 @@ async function executeTool(
       return { campaign_id: input.campaign_id, status: "ACTIVE", sucesso: true };
     }
 
+    // ── Google Ads tools ──
+    case "listar_campanhas_google": {
+      if (!client.google) throw new Error("Cliente sem credenciais Google Ads");
+      const now = new Date();
+      const dateTo = now.toISOString().split("T")[0];
+      const dateFrom = new Date(now.setDate(now.getDate() - 7)).toISOString().split("T")[0];
+      const campaigns = await getGoogleCampaignsWithMetrics(client.google, dateFrom, dateTo);
+      return { campaigns: campaigns.map(c => ({
+        id: c.id, name: c.name, status: c.status,
+        gasto: `R$ ${c.spend.toFixed(2)}`, cliques: c.clicks,
+        ctr: `${c.ctr.toFixed(2)}%`, cpc: c.cpc > 0 ? `R$ ${c.cpc.toFixed(2)}` : "—",
+        conversoes: c.conversions.toFixed(1),
+        custo_por_conversao: c.cost_per_conversion > 0 ? `R$ ${c.cost_per_conversion.toFixed(2)}` : "—",
+      })) };
+    }
+
+    case "ajustar_orcamento_google": {
+      if (!client.google) throw new Error("Cliente sem credenciais Google Ads");
+      const result = await setGoogleCampaignBudgetAmount(client.google, String(input.campaign_id), Number(input.orcamento_diario_reais));
+      return { sucesso: true, campanha: input.campaign_name, orcamento_anterior: `R$ ${result.old_budget.toFixed(2)}/dia`, orcamento_novo: `R$ ${result.new_budget.toFixed(2)}/dia` };
+    }
+
+    case "pausar_campanha_google": {
+      if (!client.google) throw new Error("Cliente sem credenciais Google Ads");
+      await setGoogleCampaignStatus(client.google, String(input.campaign_id), "PAUSED");
+      return { sucesso: true, campanha: input.campaign_name, status: "PAUSED" };
+    }
+
+    case "ativar_campanha_google": {
+      if (!client.google) throw new Error("Cliente sem credenciais Google Ads");
+      await setGoogleCampaignStatus(client.google, String(input.campaign_id), "ENABLED");
+      return { sucesso: true, campanha: input.campaign_name, status: "ENABLED" };
+    }
+
+    case "pausar_grupo_anuncios_google": {
+      if (!client.google) throw new Error("Cliente sem credenciais Google Ads");
+      await pauseGoogleAdGroup(client.google, String(input.ad_group_id));
+      return { sucesso: true, grupo: input.ad_group_name, status: "PAUSED" };
+    }
+
     default:
       throw new Error(`Ferramenta desconhecida: ${toolName}`);
   }
@@ -568,7 +674,7 @@ export async function POST(req: NextRequest) {
               model: "claude-sonnet-4-6",
               max_tokens: 4096,
               system: systemPrompt,
-              tools: client ? TOOLS : [],
+              tools: client ? (client.google ? TOOLS : TOOLS.filter(t => !t.name.endsWith("_google"))) : [],
               messages,
             });
 
