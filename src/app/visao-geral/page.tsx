@@ -455,7 +455,7 @@ export default function VisaoGeralPage() {
                       {client.google_error ? (
                         <p className="text-xs text-red-500">{client.google_error}</p>
                       ) : (
-                        <div className="grid grid-cols-3 gap-2">
+                        <div className="grid grid-cols-2 gap-2">
                           <div className="bg-gray-50 rounded-lg p-2 text-center">
                             <p className="text-xs text-gray-400">Gasto 7d</p>
                             <p className="text-xs font-semibold text-gray-800 mt-0.5">{formatCurrency(client.google_spend_7d ?? 0)}</p>
@@ -467,6 +467,15 @@ export default function VisaoGeralPage() {
                           <div className="bg-gray-50 rounded-lg p-2 text-center">
                             <p className="text-xs text-gray-400">Conversões</p>
                             <p className="text-xs font-semibold text-gray-800 mt-0.5">{(client.google_conversions_7d ?? 0).toFixed(0)}</p>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-2 text-center">
+                            <p className="text-xs text-gray-400">Custo/Conv.</p>
+                            <p className={`text-xs font-semibold mt-0.5 ${
+                              (client.google_cost_per_conversion ?? 0) > 200 ? "text-red-600" :
+                              (client.google_cost_per_conversion ?? 0) > 150 ? "text-yellow-600" : "text-gray-800"
+                            }`}>
+                              {(client.google_conversions_7d ?? 0) > 0 ? formatCurrency(client.google_cost_per_conversion ?? 0) : "—"}
+                            </p>
                           </div>
                         </div>
                       )}

@@ -8,6 +8,7 @@ import type { Campaign } from "@/types/campaign";
 interface Props {
   campaign: Campaign;
   onStatusChange: (id: string, newStatus: "ACTIVE" | "PAUSED") => void;
+  platform?: "meta" | "google";
 }
 
 function formatBudget(daily?: string, lifetime?: string): string {
@@ -17,7 +18,7 @@ function formatBudget(daily?: string, lifetime?: string): string {
   return `R$ ${num.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}${daily ? "/dia" : " total"}`;
 }
 
-export default function CampaignRow({ campaign, onStatusChange }: Props) {
+export default function CampaignRow({ campaign, onStatusChange, platform = "meta" }: Props) {
   const { token, selectedClient } = useAppContext();
   const [loading, setLoading] = useState(false);
 
@@ -26,21 +27,17 @@ export default function CampaignRow({ campaign, onStatusChange }: Props) {
     const newStatus = campaign.status === "ACTIVE" ? "PAUSED" : "ACTIVE";
     setLoading(true);
     try {
-      const res = await fetch("/api/meta/campaigns", {
+      const endpoint = platform === "google" ? "/api/google/campaigns" : "/api/meta/campaigns";
+      const res = await fetch(endpoint, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           campaignId: campaign.id,
-          status: newStatus,
+          status: platform === "google" ? (newStatus === "ACTIVE" ? "ENABLED" : "PAUSED") : newStatus,
           clientSlug: selectedClient.slug,
         }),
       });
-      if (res.ok) {
-        onStatusChange(campaign.id, newStatus);
-      }
+      if (res.ok) onStatusChange(campaign.id, newStatus);
     } finally {
       setLoading(false);
     }

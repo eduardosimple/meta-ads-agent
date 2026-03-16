@@ -110,6 +110,13 @@ export async function pauseGoogleCampaign(google: ClientGoogle, campaignId: stri
   await mutateSingleResource(google, accessToken, "campaigns", resourceName, "PAUSED");
 }
 
+export async function setGoogleCampaignStatus(google: ClientGoogle, campaignId: string, status: "PAUSED" | "ENABLED"): Promise<void> {
+  const accessToken = await getAccessToken(google);
+  const customerId = normalizeCustomerId(google.customer_id);
+  const resourceName = `customers/${customerId}/campaigns/${campaignId}`;
+  await mutateSingleResource(google, accessToken, "campaigns", resourceName, status);
+}
+
 export async function scaleGoogleCampaignBudget(google: ClientGoogle, campaignId: string, scaleFactor = 1.3): Promise<{ old_budget: number; new_budget: number }> {
   const accessToken = await getAccessToken(google);
   const customerId = normalizeCustomerId(google.customer_id);

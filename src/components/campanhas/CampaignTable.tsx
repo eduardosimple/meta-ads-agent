@@ -8,9 +8,10 @@ interface Props {
   campaigns: Campaign[];
   loading: boolean;
   error?: string | null;
+  platform?: "meta" | "google";
 }
 
-export default function CampaignTable({ campaigns, loading, error }: Props) {
+export default function CampaignTable({ campaigns, loading, error, platform = "meta" }: Props) {
   const [items, setItems] = useState<Campaign[]>(campaigns);
 
   // Sync when prop changes
@@ -88,6 +89,7 @@ export default function CampaignTable({ campaigns, loading, error }: Props) {
                 key={campaign.id}
                 campaign={campaign}
                 onStatusChange={handleStatusChange}
+                platform={platform}
               />
             ))}
           </tbody>
