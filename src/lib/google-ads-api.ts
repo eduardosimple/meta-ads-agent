@@ -214,6 +214,82 @@ export interface GoogleCampaign {
   status: string;
 }
 
+export interface GoogleCampaignWithMetrics extends GoogleCampaign {
+  spend: number;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  cpc: number;
+  conversions: number;
+  cost_per_conversion: number;
+}
+
+export async function getGoogleCampaignsWithMetrics(
+  google: ClientGoogle,
+  dateFrom: string,
+  dateTo: string
+): Promise<GoogleCampaignWithMetrics[]> {
+  const accessToken = await getAccessToken(google);
+  const results = await gaqlQuery<{
+    campaign: { id: string; name: string; status: string };
+    metrics: {
+      impressions: string;
+      clicks: string;
+      costMicros: string;
+      ctr: string;
+      averageCpc: string;
+      conversions: string;
+      costPerConversion: string;
+    };
+  }>(google, accessToken, `
+    SELECT
+      campaign.id,
+      campaign.name,
+      campaign.status,
+      metrics.impressions,
+      metrics.clicks,
+      metrics.cost_micros,
+      metrics.ctr,
+      metrics.average_cpc,
+      metrics.conversions,
+      metrics.cost_per_conversion
+    FROM campaign
+    WHERE segments.date BETWEEN '${dateFrom}' AND '${dateTo}'
+      AND campaign.status != 'REMOVED'
+  `);
+
+  const byCampaign = new Map<string, GoogleCampaignWithMetrics>();
+  for (const r of results) {
+    const id = r.campaign.id;
+    const spend = parseInt(r.metrics.costMicros ?? "0") / 1_000_000;
+    const impressions = parseInt(r.metrics.impressions ?? "0");
+    const clicks = parseInt(r.metrics.clicks ?? "0");
+    const conversions = parseFloat(r.metrics.conversions ?? "0");
+    const existing = byCampaign.get(id);
+    if (existing) {
+      existing.spend += spend;
+      existing.impressions += impressions;
+      existing.clicks += clicks;
+      existing.conversions += conversions;
+    } else {
+      byCampaign.set(id, {
+        id,
+        name: r.campaign.name,
+        status: r.campaign.status,
+        spend, impressions, clicks, conversions,
+        ctr: 0, cpc: 0, cost_per_conversion: 0,
+      });
+    }
+  }
+
+  return Array.from(byCampaign.values()).map(c => ({
+    ...c,
+    ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0,
+    cpc: c.clicks > 0 ? c.spend / c.clicks : 0,
+    cost_per_conversion: c.conversions > 0 ? c.spend / c.conversions : 0,
+  }));
+}
+
 export async function getGoogleCampaigns(google: ClientGoogle): Promise<GoogleCampaign[]> {
   const accessToken = await getAccessToken(google);
   const results = await gaqlQuery<{

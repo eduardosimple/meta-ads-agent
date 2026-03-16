@@ -5,14 +5,118 @@ import { useRouter } from "next/navigation";
 import { useAppContext } from "@/context/AppContext";
 import CampaignTable from "@/components/campanhas/CampaignTable";
 import type { Campaign } from "@/types/campaign";
+import type { GoogleCampaignWithMetrics } from "@/lib/google-ads-api";
 
 type Platform = "meta" | "google";
+
+function fmt(n: number) {
+  return `R$ ${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function GoogleCampaignsTable({
+  campaigns, loading, error, onToggle,
+}: {
+  campaigns: GoogleCampaignWithMetrics[];
+  loading: boolean;
+  error: string | null;
+  onToggle: (id: string, status: "ENABLED" | "PAUSED") => Promise<void>;
+}) {
+  const [toggling, setToggling] = useState<string | null>(null);
+
+  if (loading) return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-8 flex justify-center">
+      <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: "#4285F4", borderTopColor: "transparent" }} />
+    </div>
+  );
+  if (error) return <div className="bg-white rounded-2xl border border-red-100 p-6 text-red-500 text-sm">{error}</div>;
+  if (!campaigns.length) return <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-gray-400 text-sm">Nenhuma campanha com dados nos últimos 7 dias.</div>;
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-gray-100 bg-gray-50">
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Campanha</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Gasto</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Impressões</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Cliques</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">CTR</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">CPC</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Conv.</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Custo/Conv.</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {campaigns.map(c => {
+              const isEnabled = c.status === "ENABLED";
+              return (
+                <tr key={c.id} className="border-b border-gray-100 hover:bg-blue-50/20 transition-colors">
+                  <td className="px-4 py-3">
+                    <div className="text-sm font-medium text-gray-800 max-w-xs truncate" title={c.name}>{c.name}</div>
+                    <div className="text-xs text-gray-400 mt-0.5">ID: {c.id}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${isEnabled ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${isEnabled ? "bg-green-500" : "bg-gray-400"}`} />
+                      {isEnabled ? "Ativo" : "Pausado"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-right text-gray-700">{fmt(c.spend)}</td>
+                  <td className="px-4 py-3 text-sm text-right text-gray-600">{c.impressions.toLocaleString("pt-BR")}</td>
+                  <td className="px-4 py-3 text-sm text-right text-gray-600">{c.clicks.toLocaleString("pt-BR")}</td>
+                  <td className="px-4 py-3 text-sm text-right">
+                    <span className={c.ctr < 1.5 && c.impressions > 500 ? "text-red-600 font-semibold" : "text-gray-600"}>
+                      {c.ctr.toFixed(2)}%
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-right">
+                    <span className={c.cpc > 8 ? "text-red-600 font-semibold" : c.cpc > 4 ? "text-yellow-600" : "text-gray-600"}>
+                      {c.cpc > 0 ? fmt(c.cpc) : "—"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-right text-gray-600">{c.conversions > 0 ? c.conversions.toFixed(1) : "—"}</td>
+                  <td className="px-4 py-3 text-sm text-right">
+                    <span className={c.cost_per_conversion > 200 ? "text-red-600 font-semibold" : c.cost_per_conversion > 150 ? "text-yellow-600" : "text-gray-600"}>
+                      {c.conversions > 0 ? fmt(c.cost_per_conversion) : "—"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      disabled={toggling === c.id}
+                      onClick={async () => {
+                        setToggling(c.id);
+                        await onToggle(c.id, isEnabled ? "PAUSED" : "ENABLED");
+                        setToggling(null);
+                      }}
+                      className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all disabled:opacity-50 ${
+                        isEnabled ? "border-gray-300 text-gray-600 hover:bg-gray-100" : "border-blue-300 text-blue-600 hover:bg-blue-50"
+                      }`}
+                    >
+                      {toggling === c.id ? "..." : isEnabled ? "Pausar" : "Ativar"}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="px-4 py-2 border-t border-gray-100 bg-gray-50">
+        <p className="text-xs text-gray-400">{campaigns.length} campanha{campaigns.length !== 1 ? "s" : ""} · últimos 7 dias</p>
+      </div>
+    </div>
+  );
+}
 
 export default function CampanhasPage() {
   const { token, selectedClient } = useAppContext();
   const router = useRouter();
   const [platform, setPlatform] = useState<Platform>("meta");
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [metaCampaigns, setMetaCampaigns] = useState<Campaign[]>([]);
+  const [googleCampaigns, setGoogleCampaigns] = useState<GoogleCampaignWithMetrics[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,26 +124,21 @@ export default function CampanhasPage() {
     if (!token || !selectedClient) return;
     setLoading(true);
     setError(null);
-    setCampaigns([]);
     try {
-      const endpoint = platform === "google"
-        ? `/api/google/campaigns?clientSlug=${selectedClient.slug}`
-        : `/api/meta/campaigns?clientSlug=${selectedClient.slug}`;
-      const res = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Erro ao buscar campanhas");
-
       if (platform === "google") {
-        // Map GoogleCampaign to Campaign shape
-        const mapped: Campaign[] = (data.campaigns ?? []).map((c: { id: string; name: string; status: string }) => ({
-          id: c.id,
-          name: c.name,
-          status: c.status === "ENABLED" ? "ACTIVE" : c.status as Campaign["status"],
-          objective: "—",
-        }));
-        setCampaigns(mapped);
+        const res = await fetch(`/api/google/campaigns?clientSlug=${selectedClient.slug}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Erro ao buscar campanhas");
+        setGoogleCampaigns(data.campaigns ?? []);
       } else {
-        setCampaigns(data.campaigns ?? []);
+        const res = await fetch(`/api/meta/campaigns?clientSlug=${selectedClient.slug}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Erro ao buscar campanhas");
+        setMetaCampaigns(data.campaigns ?? []);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro desconhecido");
@@ -48,9 +147,19 @@ export default function CampanhasPage() {
     }
   }, [token, selectedClient, platform]);
 
-  useEffect(() => {
-    fetchCampaigns();
-  }, [fetchCampaigns]);
+  useEffect(() => { fetchCampaigns(); }, [fetchCampaigns]);
+
+  async function handleGoogleToggle(campaignId: string, status: "ENABLED" | "PAUSED") {
+    if (!token || !selectedClient) return;
+    const res = await fetch("/api/google/campaigns", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ clientSlug: selectedClient.slug, campaignId, status }),
+    });
+    if (res.ok) {
+      setGoogleCampaigns(prev => prev.map(c => c.id === campaignId ? { ...c, status } : c));
+    }
+  }
 
   if (!selectedClient) {
     return (
@@ -64,7 +173,6 @@ export default function CampanhasPage() {
 
   return (
     <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-5">
-      {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Campanhas</h1>
@@ -74,8 +182,7 @@ export default function CampanhasPage() {
           <button
             onClick={fetchCampaigns}
             disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl text-sm
-                       text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
               <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H3.989a.75.75 0 00-.75.75v4.242a.75.75 0 001.5 0v-2.43l.31.31a7 7 0 0011.712-3.138.75.75 0 00-1.449-.39zm1.23-3.723a.75.75 0 00.219-.53V2.929a.75.75 0 00-1.5 0V5.36l-.31-.31A7 7 0 003.239 8.188a.75.75 0 101.448.389A5.5 5.5 0 0113.89 6.11l.311.31h-2.432a.75.75 0 000 1.5h4.243a.75.75 0 00.53-.219z" clipRule="evenodd" />
@@ -85,8 +192,7 @@ export default function CampanhasPage() {
           {platform === "meta" && (
             <button
               onClick={() => router.push("/")}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-white font-medium
-                         hover:opacity-90 transition-opacity"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-white font-medium hover:opacity-90 transition-opacity"
               style={{ background: "linear-gradient(135deg, #1877f2 0%, #42b72a 100%)" }}
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
@@ -107,9 +213,6 @@ export default function CampanhasPage() {
               platform === "meta" ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:text-gray-700"
             }`}
           >
-            <svg viewBox="0 0 20 20" className="w-4 h-4" fill="currentColor">
-              <path d="M10 2C5.03 2 1 6.03 1 11c0 3.87 2.33 7.21 5.71 8.71L10 18l3.29 1.71C16.67 18.21 19 14.87 19 11c0-4.97-4.03-9-9-9z"/>
-            </svg>
             Meta Ads
           </button>
           <button
@@ -129,13 +232,16 @@ export default function CampanhasPage() {
         </div>
       )}
 
-      {/* Table */}
-      <CampaignTable
-        campaigns={campaigns}
-        loading={loading}
-        error={error}
-        platform={platform}
-      />
+      {platform === "google" ? (
+        <GoogleCampaignsTable
+          campaigns={googleCampaigns}
+          loading={loading}
+          error={error}
+          onToggle={handleGoogleToggle}
+        />
+      ) : (
+        <CampaignTable campaigns={metaCampaigns} loading={loading} error={error} platform="meta" />
+      )}
     </div>
   );
 }
