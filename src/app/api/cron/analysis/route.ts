@@ -111,7 +111,7 @@ export async function GET(req: NextRequest) {
         }),
       });
       const saveText = res.ok ? "ok" : await res.text();
-      results.push({ client: client.slug, status: "ok", date: today, saveStatus: res.status, saveResult: saveText });
+      results.push({ client: client.slug, status: "ok", date: today, saveStatus: res.status, saveResult: saveText, supabaseUrl: url.slice(0, 50), keyStart: key.slice(0, 20) });
     } catch (e) {
       console.error(`[cron] error for ${client.slug}:`, e);
       results.push({ client: client.slug, status: "error" });
