@@ -49,7 +49,7 @@ export default function RelatoriosPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (data.error?.includes("KV") || data.error?.includes("kv") || data.error?.includes("token")) {
+      if (data.error?.includes("KV") || data.error?.includes("kv") || data.error?.includes("token") || data.error?.includes("UPSTASH") || data.error?.includes("Redis")) {
         setKvMissing(true);
         return;
       }
@@ -112,14 +112,15 @@ export default function RelatoriosPage() {
       <div className="max-w-3xl mx-auto p-6 space-y-4">
         <h1 className="text-xl font-bold text-gray-900">Relatórios Diários</h1>
         <div className="bg-yellow-50 border border-yellow-200 rounded-2xl p-6 space-y-3">
-          <p className="font-semibold text-yellow-800">⚙️ Configuração necessária: Vercel KV</p>
-          <p className="text-sm text-yellow-700">Os relatórios diários precisam de um banco de dados KV para persistir. Configure em 3 passos:</p>
+          <p className="font-semibold text-yellow-800">⚙️ Configuração necessária: Upstash Redis</p>
+          <p className="text-sm text-yellow-700">Os relatórios precisam de um banco Redis para persistir. Configure em 4 passos:</p>
           <ol className="text-sm text-yellow-700 space-y-1 list-decimal pl-5">
-            <li>Acesse o dashboard do Vercel → aba <strong>Storage</strong></li>
-            <li>Clique em <strong>Create Database</strong> → selecione <strong>KV (Redis)</strong></li>
-            <li>Conecte ao projeto <strong>meta-ads-agent</strong> e clique em <strong>Connect</strong></li>
+            <li>Acesse <strong>upstash.com</strong> → crie uma conta gratuita</li>
+            <li>Clique em <strong>Create Database</strong> → escolha um nome e região</li>
+            <li>Copie <strong>UPSTASH_REDIS_REST_URL</strong> e <strong>UPSTASH_REDIS_REST_TOKEN</strong></li>
+            <li>Adicione as duas variáveis em Vercel → projeto → <strong>Settings → Environment Variables</strong></li>
           </ol>
-          <p className="text-xs text-yellow-600">Após conectar, o deploy automático adicionará as variáveis de ambiente necessárias.</p>
+          <p className="text-xs text-yellow-600">Após adicionar as variáveis, faça um novo deploy (ou redeploy) para ativar.</p>
         </div>
       </div>
     );
