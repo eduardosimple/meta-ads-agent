@@ -168,10 +168,13 @@ IMPORTANTE: Responda APENAS via tool retornar_analise.
       analyzed_at: now_iso,
       proposals: (parsed.proposals ?? []).map(p => {
         let action: Proposal["action"];
-        if (p.action_type === "pause_ad_group") {
-          action = { type: "pause_google_ad_group", ad_group_id: p.ad_id, customer_id: customerId };
-        } else if (p.action_type === "pause_campaign") {
-          action = { type: "pause_google_campaign", campaign_id: p.campaign_id, customer_id: customerId };
+        // Derive action from verdict (more reliable than relying on Claude to set action_type)
+        if (p.verdict === "pausar") {
+          if (p.action_type === "pause_campaign") {
+            action = { type: "pause_google_campaign", campaign_id: p.campaign_id, customer_id: customerId };
+          } else {
+            action = { type: "pause_google_ad_group", ad_group_id: p.ad_id, customer_id: customerId };
+          }
         } else {
           action = { type: "none" };
         }
