@@ -147,15 +147,15 @@ IMPORTANTE: Responda APENAS via tool retornar_analise. Os campos ad_id e ad_name
     const result: AnalysisResult = {
       client_slug: clientSlug,
       analyzed_at: now_iso,
-      proposals: parsed.proposals.map(p => ({
+      proposals: (parsed.proposals ?? []).map(p => ({
         ...p,
-        action: { type: "none" as const }, // Google Ads: manual action only (no automated execution yet)
+        action: { type: "none" as const },
         id: randomUUID(),
         status: "pending" as const,
         created_at: now_iso,
       })),
-      alerts: parsed.alerts.map(a => ({ ...a, id: randomUUID() })),
-      summary_text: parsed.summary_text,
+      alerts: (parsed.alerts ?? []).map(a => ({ ...a, id: randomUUID() })),
+      summary_text: parsed.summary_text ?? "",
     };
 
     return NextResponse.json(result);

@@ -179,14 +179,14 @@ Para actions:
     const result: AnalysisResult = {
       client_slug: clientSlug,
       analyzed_at: now_iso,
-      proposals: parsed.proposals.map(p => ({
+      proposals: (parsed.proposals ?? []).map(p => ({
         ...p,
         id: randomUUID(),
         status: "pending" as const,
         created_at: now_iso,
       })),
-      alerts: parsed.alerts.map(a => ({ ...a, id: randomUUID() })),
-      summary_text: parsed.summary_text,
+      alerts: (parsed.alerts ?? []).map(a => ({ ...a, id: randomUUID() })),
+      summary_text: parsed.summary_text ?? "",
     };
 
     return NextResponse.json(result);
