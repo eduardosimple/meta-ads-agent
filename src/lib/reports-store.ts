@@ -21,8 +21,8 @@ function getSupabase() {
 
 export async function saveReport(report: DailyReport): Promise<void> {
   const sb = getSupabase();
-  if (!sb) return;
-  await sb.from("daily_reports").upsert({
+  if (!sb) { console.error("[reports-store] Supabase not configured"); return; }
+  const { error } = await sb.from("daily_reports").upsert({
     id: report.id,
     client_slug: report.client_slug,
     client_name: report.client_name,
@@ -31,6 +31,7 @@ export async function saveReport(report: DailyReport): Promise<void> {
     meta: report.meta ?? null,
     google: report.google ?? null,
   }, { onConflict: "client_slug,date" });
+  if (error) console.error("[reports-store] saveReport error:", JSON.stringify(error));
 }
 
 export async function getReport(slug: string, date: string): Promise<DailyReport | null> {
