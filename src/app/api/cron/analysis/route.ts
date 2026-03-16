@@ -90,7 +90,12 @@ export async function GET(req: NextRequest) {
       }
 
       await saveReport(report);
-      results.push({ client: client.slug, status: "ok", date: today });
+      const sb = (await import("@supabase/supabase-js")).createClient(
+        process.env.SUPABASE_URL ?? "",
+        process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_ANON_KEY ?? ""
+      );
+      const { data: check, error: checkErr } = await sb.from("daily_reports").select("id").eq("client_slug", client.slug).eq("date", today).single();
+      results.push({ client: client.slug, status: "ok", date: today, saved: !!check, saveErr: checkErr?.message ?? null });
     } catch (e) {
       console.error(`[cron] error for ${client.slug}:`, e);
       results.push({ client: client.slug, status: "error" });
