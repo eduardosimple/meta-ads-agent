@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthFromRequest } from "@/lib/auth";
 import { getClients } from "@/lib/clients";
 import { getAdInsights } from "@/lib/meta-api";
-import { getGoogleAdGroupInsights } from "@/lib/google-ads-api";
+import { getGoogleAdGroupInsights, getLastGoogleChange } from "@/lib/google-ads-api";
 import type { AdMetrics, GoogleAdMetrics } from "@/types/metrics";
 
 export const maxDuration = 60;
@@ -29,6 +29,7 @@ export interface ClientOverview {
   leads_7d: number;
   cpl: number;
   last_meta_change: LastChange | null;
+  last_google_change: LastChange | null;
   // Google Ads summary
   google_spend_7d?: number;
   google_active_ad_groups?: number;
@@ -137,11 +138,14 @@ export async function GET(req: NextRequest) {
       let ads: AdMetrics[] = [];
       let error: string | undefined;
 
-      const [insightsResult, lastMetaChange, googleInsightsResult] = await Promise.allSettled([
+      const [insightsResult, lastMetaChange, googleInsightsResult, lastGoogleChangeResult] = await Promise.allSettled([
         getAdInsights(client.meta.ad_account_id, client.meta.access_token, dateFrom, dateTo),
         getLastMetaChange(client.meta.ad_account_id, client.meta.access_token),
         client.google
           ? getGoogleAdGroupInsights(client.google, dateFrom, dateTo)
+          : Promise.resolve(null),
+        client.google
+          ? getLastGoogleChange(client.google, dateFrom)
           : Promise.resolve(null),
       ]);
 
@@ -205,6 +209,7 @@ export async function GET(req: NextRequest) {
         leads_7d: totalLeads,
         cpl: totalLeads > 0 ? totalSpend / totalLeads : 0,
         last_meta_change: lastMetaChange.status === "fulfilled" ? lastMetaChange.value : null,
+        last_google_change: lastGoogleChangeResult.status === "fulfilled" ? lastGoogleChangeResult.value : null,
         ...googleFields,
         error,
       };
@@ -228,6 +233,7 @@ export async function GET(req: NextRequest) {
       leads_7d: 0,
       cpl: 0,
       last_meta_change: null,
+      last_google_change: null,
       error: "Erro inesperado",
     };
   });

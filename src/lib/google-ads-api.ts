@@ -1,5 +1,6 @@
 import type { ClientGoogle } from "@/types/client";
 import type { DailyMetric, GoogleAdMetrics } from "@/types/metrics";
+import type { LastChange } from "@/app/api/overview/route";
 
 const GOOGLE_ADS_API_BASE = "https://googleads.googleapis.com/v20";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -156,6 +157,38 @@ export async function scaleGoogleCampaignBudget(google: ClientGoogle, campaignId
   }
 
   return { old_budget: currentMicros / 1_000_000, new_budget: newMicros / 1_000_000 };
+}
+
+export async function getLastGoogleChange(google: ClientGoogle, dateFrom: string): Promise<LastChange | null> {
+  try {
+    const accessToken = await getAccessToken(google);
+    const results = await gaqlQuery<{
+      changeEvent: { changeDateTime: string; resourceType: string; clientType: string };
+    }>(google, accessToken, `
+      SELECT
+        change_event.change_date_time,
+        change_event.resource_type,
+        change_event.client_type
+      FROM change_event
+      WHERE change_event.change_date_time >= '${dateFrom} 00:00:00'
+        AND change_event.client_type = 'GOOGLE_ADS_WEB_CLIENT'
+      ORDER BY change_event.change_date_time DESC
+      LIMIT 1
+    `);
+
+    if (!results.length) return null;
+    const ev = results[0].changeEvent;
+    const entityType =
+      ev.resourceType === "CAMPAIGN" ? "campanha" :
+      ev.resourceType === "AD_GROUP" ? "grupo de anúncios" :
+      ev.resourceType === "AD_GROUP_AD" ? "anúncio" :
+      ev.resourceType === "AD_GROUP_BID_MODIFIER" ? "lance do grupo" :
+      ev.resourceType.toLowerCase().replace(/_/g, " ");
+
+    return { at: ev.changeDateTime, entity_name: entityType, entity_type: entityType, via: "gerenciador" };
+  } catch {
+    return null;
+  }
 }
 
 export async function validateGoogleAdsToken(google: ClientGoogle): Promise<boolean> {

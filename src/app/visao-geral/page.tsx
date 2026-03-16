@@ -164,14 +164,32 @@ function resolveLastChange(
   }
 }
 
+function resolveLastManualChange(
+  last_meta_change: ClientOverview["last_meta_change"],
+  last_google_change: ClientOverview["last_google_change"]
+): { at: string; label: string; platform: "meta" | "google" } | null {
+  if (!last_meta_change && !last_google_change) return null;
+  if (last_meta_change && !last_google_change)
+    return { at: last_meta_change.at, label: `${last_meta_change.entity_type === "campanha" ? "Campanha" : last_meta_change.entity_type === "conjunto" ? "Conjunto" : "Anúncio"} "${last_meta_change.entity_name}"`, platform: "meta" };
+  if (!last_meta_change && last_google_change)
+    return { at: last_google_change.at, label: last_google_change.entity_name, platform: "google" };
+  const mt = new Date(last_meta_change!.at).getTime();
+  const gt = new Date(last_google_change!.at).getTime();
+  if (mt >= gt)
+    return { at: last_meta_change!.at, label: `${last_meta_change!.entity_type === "campanha" ? "Campanha" : last_meta_change!.entity_type === "conjunto" ? "Conjunto" : "Anúncio"} "${last_meta_change!.entity_name}"`, platform: "meta" };
+  return { at: last_google_change!.at, label: last_google_change!.entity_name, platform: "google" };
+}
+
 function wasManuallyEditedAfterSystem(
   slug: string,
-  last_meta_change: ClientOverview["last_meta_change"]
+  last_meta_change: ClientOverview["last_meta_change"],
+  last_google_change: ClientOverview["last_google_change"]
 ): boolean {
-  if (!last_meta_change) return false;
+  const manual = resolveLastManualChange(last_meta_change, last_google_change);
+  if (!manual) return false;
   const sys = getSystemOptimization(slug);
-  if (!sys) return true; // never optimized by system, Meta has changes
-  return new Date(last_meta_change.at).getTime() > new Date(sys.at).getTime();
+  if (!sys) return true;
+  return new Date(manual.at).getTime() > new Date(sys.at).getTime();
 }
 
 export default function VisaoGeralPage() {
@@ -298,7 +316,8 @@ export default function VisaoGeralPage() {
             .map(client => {
               const cfg = statusConfig[client.status];
               const lastChange = resolveLastChange(client.slug, client.last_meta_change);
-              const manualAfterSystem = wasManuallyEditedAfterSystem(client.slug, client.last_meta_change);
+              const lastManual = resolveLastManualChange(client.last_meta_change, client.last_google_change);
+              const manualAfterSystem = wasManuallyEditedAfterSystem(client.slug, client.last_meta_change, client.last_google_change);
               const sysOpt = getSystemOptimization(client.slug);
 
               return (
@@ -333,16 +352,16 @@ export default function VisaoGeralPage() {
                   </div>
 
                   {/* Manual edit warning banner */}
-                  {manualAfterSystem && client.last_meta_change && (
+                  {manualAfterSystem && lastManual && (
                     <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 flex items-start gap-2">
                       <span className="text-orange-500 text-sm shrink-0">✏️</span>
                       <div>
-                        <p className="text-xs font-semibold text-orange-800">Alterado manualmente no Gerenciador</p>
+                        <p className="text-xs font-semibold text-orange-800">
+                          Alterado manualmente no Gerenciador{lastManual.platform === "google" ? " (Google Ads)" : ""}
+                        </p>
                         <p className="text-xs text-orange-700 mt-0.5">
-                          {client.last_meta_change.entity_type === "campanha" ? "Campanha" :
-                           client.last_meta_change.entity_type === "conjunto" ? "Conjunto" : "Anúncio"}{" "}
-                          <span className="font-medium">&ldquo;{client.last_meta_change.entity_name}&rdquo;</span>
-                          {" "}alterado {timeAgo(client.last_meta_change.at)} ({formatDate(client.last_meta_change.at)})
+                          <span className="font-medium">{lastManual.label}</span>
+                          {" "}alterado {timeAgo(lastManual.at)} ({formatDate(lastManual.at)})
                         </p>
                       </div>
                     </div>
@@ -512,32 +531,36 @@ export default function VisaoGeralPage() {
                       </div>
                     )}
 
-                    {/* Last Meta change */}
-                    {client.last_meta_change && (
+                    {/* Last manual change (Meta or Google) */}
+                    {lastManual ? (
                       <div className={`rounded-xl p-3 border flex items-start gap-2 ${
-                        manualAfterSystem
-                          ? "bg-orange-50 border-orange-200"
-                          : "bg-gray-50 border-gray-200"
+                        manualAfterSystem ? "bg-orange-50 border-orange-200" : "bg-gray-50 border-gray-200"
                       }`}>
                         <span className="text-sm shrink-0">{manualAfterSystem ? "⚠️" : "📋"}</span>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2 flex-wrap">
                             <p className={`text-xs font-semibold ${manualAfterSystem ? "text-orange-800" : "text-gray-700"}`}>
                               {manualAfterSystem ? "Alterado manualmente no Gerenciador" : "Última alteração no Gerenciador"}
+                              {lastManual.platform === "google" && (
+                                <span className="ml-1 text-blue-600">(Google Ads)</span>
+                              )}
                             </p>
                             <span className={`text-xs ${manualAfterSystem ? "text-orange-600" : "text-gray-400"}`}>
-                              {timeAgo(client.last_meta_change.at)}
+                              {timeAgo(lastManual.at)}
                             </span>
                           </div>
-                          <p className={`text-xs mt-0.5 ${manualAfterSystem ? "text-orange-700" : "text-gray-500"}`}>
-                            {client.last_meta_change.entity_type === "campanha" ? "Campanha" :
-                             client.last_meta_change.entity_type === "conjunto" ? "Conjunto" : "Anúncio"}{" "}
-                            <span className="font-medium">&ldquo;{client.last_meta_change.entity_name}&rdquo;</span>
+                          <p className={`text-xs mt-0.5 font-medium ${manualAfterSystem ? "text-orange-700" : "text-gray-600"}`}>
+                            {lastManual.label}
                           </p>
                           <p className={`text-xs mt-0.5 ${manualAfterSystem ? "text-orange-500" : "text-gray-400"}`}>
-                            {formatDate(client.last_meta_change.at)}
+                            {formatDate(lastManual.at)}
                           </p>
                         </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-300 text-sm">📋</span>
+                        <p className="text-xs text-gray-400">Nenhuma alteração manual detectada nos últimos 7 dias</p>
                       </div>
                     )}
                   </div>
