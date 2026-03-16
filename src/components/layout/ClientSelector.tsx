@@ -16,6 +16,15 @@ export default function ClientSelector() {
     refetch();
   }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Sync selectedClient with fresh server data so cached localStorage doesn't go stale
+  useEffect(() => {
+    if (!selectedClient || clients.length === 0) return;
+    const fresh = clients.find(c => c.slug === selectedClient.slug);
+    if (fresh && JSON.stringify(fresh) !== JSON.stringify(selectedClient)) {
+      selectClient(fresh);
+    }
+  }, [clients]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const slug = e.target.value;
     if (!slug) {
