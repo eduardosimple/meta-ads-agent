@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
 
   const metricsText = adGroups.map(ag => `
 Grupo de Anúncios: "${ag.ad_group_name}" (ID: ${ag.ad_group_id})
-- Campanha: ${ag.campaign_name}
+- Campanha: "${ag.campaign_name}" (ID: ${ag.campaign_id})
 - Status: ${ag.status}
 - Período: últimos 7 dias
 - Gasto: R$ ${ag.spend.toFixed(2)}
