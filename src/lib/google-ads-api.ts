@@ -109,6 +109,55 @@ export async function pauseGoogleCampaign(google: ClientGoogle, campaignId: stri
   await mutateSingleResource(google, accessToken, "campaigns", resourceName, "PAUSED");
 }
 
+export async function scaleGoogleCampaignBudget(google: ClientGoogle, campaignId: string, scaleFactor = 1.3): Promise<{ old_budget: number; new_budget: number }> {
+  const accessToken = await getAccessToken(google);
+  const customerId = normalizeCustomerId(google.customer_id);
+
+  // Fetch the campaign's budget resource name and current amount
+  const rows = await gaqlQuery<{
+    campaign: { id: string };
+    campaignBudget: { resourceName: string; amountMicros: string };
+  }>(google, accessToken, `
+    SELECT campaign.id, campaign_budget.resource_name, campaign_budget.amount_micros
+    FROM campaign
+    WHERE campaign.id = '${campaignId}'
+    LIMIT 1
+  `);
+
+  if (!rows.length || !rows[0].campaignBudget?.resourceName) {
+    throw new Error("Orçamento da campanha não encontrado");
+  }
+
+  const budgetResourceName = rows[0].campaignBudget.resourceName;
+  const currentMicros = parseInt(rows[0].campaignBudget.amountMicros ?? "0");
+  const newMicros = Math.round(currentMicros * scaleFactor);
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${accessToken}`,
+    "developer-token": google.developer_token,
+  };
+  if (google.manager_customer_id) {
+    headers["login-customer-id"] = normalizeCustomerId(google.manager_customer_id);
+  }
+
+  const res = await fetch(`${GOOGLE_ADS_API_BASE}/customers/${customerId}/campaignBudgets:mutate`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      operations: [{ update: { resourceName: budgetResourceName, amountMicros: newMicros }, updateMask: "amount_micros" }],
+    }),
+  });
+
+  const data = await res.json() as { error?: { message?: string; details?: Array<{ errors?: Array<{ message?: string }> }> } };
+  if (!res.ok || data.error) {
+    const detail = data.error?.details?.[0]?.errors?.[0]?.message;
+    throw new Error(detail ?? data.error?.message ?? `Google Ads budget mutate error: ${res.status}`);
+  }
+
+  return { old_budget: currentMicros / 1_000_000, new_budget: newMicros / 1_000_000 };
+}
+
 export async function validateGoogleAdsToken(google: ClientGoogle): Promise<boolean> {
   try {
     const accessToken = await getAccessToken(google);

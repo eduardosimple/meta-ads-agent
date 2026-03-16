@@ -175,6 +175,8 @@ IMPORTANTE: Responda APENAS via tool retornar_analise.
           } else {
             action = { type: "pause_google_ad_group", ad_group_id: p.ad_id, customer_id: customerId };
           }
+        } else if (p.verdict === "escalar") {
+          action = { type: "scale_google_campaign", campaign_id: p.campaign_id, customer_id: customerId };
         } else {
           action = { type: "none" };
         }

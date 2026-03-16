@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthFromRequest } from "@/lib/auth";
 import { getClientBySlug } from "@/lib/clients";
 import { pauseEntity, updateAdsetBudget } from "@/lib/meta-api";
-import { pauseGoogleAdGroup, pauseGoogleCampaign } from "@/lib/google-ads-api";
+import { pauseGoogleAdGroup, pauseGoogleCampaign, scaleGoogleCampaignBudget } from "@/lib/google-ads-api";
 import type { ProposalAction } from "@/types/metrics";
 
 export async function POST(req: NextRequest) {
@@ -39,6 +39,11 @@ export async function POST(req: NextRequest) {
         if (!client.google) return NextResponse.json({ error: "Cliente sem credenciais Google Ads" }, { status: 400 });
         await pauseGoogleCampaign(client.google, action.campaign_id);
         return NextResponse.json({ success: true, message: "Campanha pausada com sucesso no Google Ads" });
+
+      case "scale_google_campaign":
+        if (!client.google) return NextResponse.json({ error: "Cliente sem credenciais Google Ads" }, { status: 400 });
+        const scaled = await scaleGoogleCampaignBudget(client.google, action.campaign_id, 1.3);
+        return NextResponse.json({ success: true, message: `Orçamento escalado de R$ ${scaled.old_budget.toFixed(2)} → R$ ${scaled.new_budget.toFixed(2)}/dia (+30%)` });
 
       case "none":
         return NextResponse.json({ success: true, message: "Registrado (ação manual necessária no Google Ads)" });
