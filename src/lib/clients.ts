@@ -62,10 +62,18 @@ export async function getClientBySlug(slug: string): Promise<Client | null> {
 }
 
 export async function upsertClient(client: Client): Promise<void> {
-  const { error } = await getSupabase()
-    .from("clients")
-    .upsert(clientToRow(client), { onConflict: "slug" });
-  if (error) throw new Error(error.message ?? JSON.stringify(error));
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error("Supabase não configurado. Adicione SUPABASE_URL e SUPABASE_ANON_KEY nas variáveis de ambiente do Vercel.");
+  }
+  try {
+    const { error } = await getSupabase()
+      .from("clients")
+      .upsert(clientToRow(client), { onConflict: "slug" });
+    if (error) throw new Error(error.message ?? JSON.stringify(error));
+  } catch (e) {
+    if (e instanceof Error) throw e;
+    throw new Error(typeof e === "object" ? JSON.stringify(e) : String(e));
+  }
 }
 
 export async function deleteClientBySlug(slug: string): Promise<boolean> {

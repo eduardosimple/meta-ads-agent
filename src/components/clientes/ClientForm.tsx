@@ -121,10 +121,15 @@ export default function ClientForm({ client, onSuccess, onCancel }: Props) {
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Erro ao salvar");
+      if (!res.ok) {
+        const msg = typeof data.error === "string"
+          ? data.error
+          : data.error?.message ?? JSON.stringify(data.error) ?? "Erro ao salvar";
+        throw new Error(msg);
+      }
       onSuccess();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro desconhecido");
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
