@@ -88,10 +88,13 @@ function timeAgo(iso: string): string {
 
 function getSystemOptimization(slug: string): SystemOptimization | null {
   try {
-    const raw = localStorage.getItem(`analysis_history_${slug}`);
-    if (!raw) return null;
-    const history: Proposal[] = JSON.parse(raw);
-    const resolved = history.filter(p => p.resolved_at);
+    const rawMeta = localStorage.getItem(`analysis_history_${slug}`);
+    const rawGoogle = localStorage.getItem(`analysis_history_google_${slug}`);
+    const metaHistory: Proposal[] = rawMeta ? JSON.parse(rawMeta) : [];
+    const googleHistory: Proposal[] = rawGoogle ? JSON.parse(rawGoogle) : [];
+    const combined = [...metaHistory, ...googleHistory];
+    if (combined.length === 0) return null;
+    const resolved = combined.filter(p => p.resolved_at);
     if (resolved.length === 0) return null;
     resolved.sort((a, b) => new Date(b.resolved_at!).getTime() - new Date(a.resolved_at!).getTime());
 
