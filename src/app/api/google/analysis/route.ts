@@ -11,12 +11,19 @@ export const maxDuration = 60;
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 export async function POST(req: NextRequest) {
+  try {
   const auth = await getAuthFromRequest(req);
   const cronKey = req.headers.get("x-cron-key");
   const validCron = cronKey && cronKey === process.env.CRON_SECRET;
   if (!auth && !validCron) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
 
-  const { clientSlug } = await req.json();
+  let clientSlug: string;
+  try {
+    const body = await req.json();
+    clientSlug = body.clientSlug;
+  } catch {
+    return NextResponse.json({ error: "Body inválido" }, { status: 400 });
+  }
   if (!clientSlug) return NextResponse.json({ error: "clientSlug obrigatório" }, { status: 400 });
 
   const client = await getClientBySlug(clientSlug);
@@ -30,13 +37,14 @@ export async function POST(req: NextRequest) {
   let adGroups: GoogleAdMetrics[] = [];
   try {
     adGroups = await getGoogleAdGroupInsights(client.google, dateFrom, dateTo);
-  } catch {
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
     const empty: AnalysisResult = {
       client_slug: clientSlug,
       analyzed_at: new Date().toISOString(),
       proposals: [],
-      alerts: [{ id: randomUUID(), level: "info", title: "Sem dados suficientes", message: "Não há dados de grupos de anúncios ativos nos últimos 7 dias.", entity_name: client.nome }],
-      summary_text: "Nenhum grupo de anúncios ativo encontrado nos últimos 7 dias.",
+      alerts: [{ id: randomUUID(), level: "critical", title: "Erro ao buscar dados do Google Ads", message: errMsg, entity_name: client.nome }],
+      summary_text: `Erro ao buscar dados: ${errMsg}`,
     };
     return NextResponse.json(empty);
   }
@@ -162,5 +170,10 @@ IMPORTANTE: Responda APENAS via tool retornar_analise. Os campos ad_id e ad_name
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erro na análise";
     return NextResponse.json({ error: msg }, { status: 500 });
+  }
+
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ error: `Erro interno: ${msg}` }, { status: 500 });
   }
 }
