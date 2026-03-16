@@ -61,9 +61,54 @@ export async function getClientBySlug(slug: string): Promise<Client | null> {
   return null;
 }
 
+async function saveClientsToVercel(clients: Client[]): Promise<void> {
+  const apiToken = process.env.VERCEL_API_TOKEN;
+  const projectId = process.env.VERCEL_PROJECT_ID;
+  const teamId = process.env.VERCEL_TEAM_ID;
+  const envId = process.env.CLIENTS_JSON_ENV_ID;
+
+  if (!apiToken || !projectId || !teamId || !envId) {
+    throw new Error("Variáveis VERCEL_API_TOKEN, VERCEL_PROJECT_ID, VERCEL_TEAM_ID ou CLIENTS_JSON_ENV_ID não configuradas.");
+  }
+
+  const newValue = JSON.stringify({ clientes: clients });
+
+  const res = await fetch(
+    `https://api.vercel.com/v9/projects/${projectId}/env/${envId}?teamId=${teamId}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ value: newValue }),
+    }
+  );
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { error?: { message?: string } };
+    throw new Error(err?.error?.message ?? `Erro ao salvar no Vercel: ${res.status}`);
+  }
+}
+
 export async function upsertClient(client: Client): Promise<void> {
+  // Se CLIENTS_JSON está configurado, salvar via Vercel API
+  const existing = getClientsFromEnv();
+  if (existing.length > 0 || process.env.CLIENTS_JSON) {
+    const all = getClientsFromEnv();
+    const idx = all.findIndex(c => c.slug === client.slug);
+    if (idx >= 0) {
+      all[idx] = client;
+    } else {
+      all.push(client);
+    }
+    await saveClientsToVercel(all);
+    return;
+  }
+
+  // Fallback: Supabase
   if (!supabaseUrl || !supabaseKey) {
-    throw new Error("Supabase não configurado. Adicione SUPABASE_URL e SUPABASE_ANON_KEY nas variáveis de ambiente do Vercel.");
+    throw new Error("Nenhum método de persistência configurado.");
   }
   try {
     const { error } = await getSupabase()
@@ -77,6 +122,17 @@ export async function upsertClient(client: Client): Promise<void> {
 }
 
 export async function deleteClientBySlug(slug: string): Promise<boolean> {
+  // Se CLIENTS_JSON está configurado, deletar via Vercel API
+  const existing = getClientsFromEnv();
+  if (existing.length > 0 || process.env.CLIENTS_JSON) {
+    const all = getClientsFromEnv();
+    const filtered = all.filter(c => c.slug !== slug);
+    if (filtered.length === all.length) return false;
+    await saveClientsToVercel(filtered);
+    return true;
+  }
+
+  // Fallback: Supabase
   const { error, count } = await getSupabase()
     .from("clients")
     .delete({ count: "exact" })
