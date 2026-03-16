@@ -90,9 +90,28 @@ export async function GET(req: NextRequest) {
       }
 
       await saveReport(report);
-      const svcKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
-      const anonKey = process.env.SUPABASE_ANON_KEY ?? "";
-      results.push({ client: client.slug, status: "ok", date: today, svcKeyLen: svcKey.length, anonKeyLen: anonKey.length, svcKeyStart: svcKey.slice(0,20) });
+      const url = process.env.SUPABASE_URL ?? "";
+      const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_ANON_KEY ?? "";
+      const res = await fetch(`${url}/rest/v1/daily_reports`, {
+        method: "POST",
+        headers: {
+          "apikey": key,
+          "Authorization": `Bearer ${key}`,
+          "Content-Type": "application/json",
+          "Prefer": "resolution=merge-duplicates",
+        },
+        body: JSON.stringify({
+          id: report.id,
+          client_slug: report.client_slug,
+          client_name: report.client_name,
+          date: report.date,
+          created_at: report.created_at,
+          meta: report.meta ?? null,
+          google: report.google ?? null,
+        }),
+      });
+      const saveText = res.ok ? "ok" : await res.text();
+      results.push({ client: client.slug, status: "ok", date: today, saveStatus: res.status, saveResult: saveText });
     } catch (e) {
       console.error(`[cron] error for ${client.slug}:`, e);
       results.push({ client: client.slug, status: "error" });

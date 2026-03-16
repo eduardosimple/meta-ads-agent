@@ -13,10 +13,9 @@ export interface DailyReport {
 
 function getSupabase() {
   const url = process.env.SUPABASE_URL;
-  // Use service role key (bypasses RLS) for server-side report storage
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_ANON_KEY;
   if (!url || !key) return null;
-  return createClient(url, key);
+  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
 export async function saveReport(report: DailyReport): Promise<void> {
