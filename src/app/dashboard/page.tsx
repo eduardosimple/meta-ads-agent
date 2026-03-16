@@ -143,7 +143,8 @@ export default function DashboardPage() {
     setAnalysis(null);
     setProposals([]);
     if (selectedClient) {
-      setHistory(loadHistory(platformStorageKey(selectedClient.slug, platform)));
+      const histKey = platformStorageKey(selectedClient.slug, platform);
+      try { setHistory(JSON.parse(localStorage.getItem(histKey) ?? "[]")); } catch { setHistory([]); }
     }
   }, [fetchMetrics, selectedClient, platform]);
 
@@ -172,11 +173,12 @@ export default function DashboardPage() {
   function persistResolved(updated: Proposal[]) {
     if (!selectedClient) return;
     const key = platformStorageKey(selectedClient.slug, platform);
+    const existing: Proposal[] = (() => { try { return JSON.parse(localStorage.getItem(key) ?? "[]"); } catch { return []; } })();
     const allHistory = [
-      ...loadHistory(key).filter(h => !updated.find(u => u.id === h.id)),
+      ...existing.filter(h => !updated.find(u => u.id === h.id)),
       ...updated.filter(p => p.status !== "pending"),
-    ];
-    saveHistory(key, allHistory);
+    ].slice(-50);
+    localStorage.setItem(key, JSON.stringify(allHistory));
     setHistory(allHistory);
   }
 
