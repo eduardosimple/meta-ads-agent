@@ -1,7 +1,7 @@
 import type { ClientGoogle } from "@/types/client";
 import type { DailyMetric, GoogleAdMetrics } from "@/types/metrics";
 
-const GOOGLE_ADS_API_BASE = "https://googleads.googleapis.com/v18";
+const GOOGLE_ADS_API_BASE = "https://googleads.googleapis.com/v20";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
 function normalizeCustomerId(id: string): string {
