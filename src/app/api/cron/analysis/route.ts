@@ -92,8 +92,12 @@ export async function GET(req: NextRequest) {
         }
       }
 
+      const metaSummary = report.meta
+        ? `meta OK (${report.meta.alerts?.length ?? 0} alerts, summary_len=${report.meta.summary_text?.length ?? 0})`
+        : "meta=undefined";
+      console.log(`[cron] pre-save ${client.slug}:`, metaSummary);
       await saveReport(report);
-      results.push({ client: client.slug, status: "ok", date: today });
+      results.push({ client: client.slug, status: "ok", date: today, meta_ok: !!report.meta });
     } catch (e) {
       console.error(`[cron] error for ${client.slug}:`, e);
       results.push({ client: client.slug, status: "error" });
