@@ -39,25 +39,26 @@ export default function RelatoriosPage() {
   const [selected, setSelected] = useState<DailyReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [approving, setApproving] = useState<string | null>(null);
-  const [kvMissing, setKvMissing] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const fetchReports = useCallback(async () => {
     if (!token || !selectedClient) return;
     setLoading(true);
+    setFetchError(null);
     try {
       const res = await fetch(`/api/daily-reports?clientSlug=${selectedClient.slug}&limit=14`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (data.error?.includes("KV") || data.error?.includes("kv") || data.error?.includes("token") || data.error?.includes("UPSTASH") || data.error?.includes("Redis")) {
-        setKvMissing(true);
+      if (!res.ok) {
+        setFetchError(data.error ?? "Erro ao buscar relatórios");
         return;
       }
       const list: DailyReport[] = data.reports ?? [];
       setReports(list);
       if (list.length > 0 && !selected) setSelected(list[0]);
     } catch {
-      setKvMissing(true);
+      setFetchError("Erro de conexão ao buscar relatórios");
     } finally {
       setLoading(false);
     }
@@ -114,20 +115,16 @@ export default function RelatoriosPage() {
     );
   }
 
-  if (kvMissing) {
+  if (fetchError) {
     return (
       <div className="max-w-3xl mx-auto p-6 space-y-4">
         <h1 className="text-xl font-bold text-gray-900">Relatórios Diários</h1>
-        <div className="bg-yellow-50 border border-yellow-200 rounded-2xl p-6 space-y-3">
-          <p className="font-semibold text-yellow-800">⚙️ Configuração necessária: Upstash Redis</p>
-          <p className="text-sm text-yellow-700">Os relatórios precisam de um banco Redis para persistir. Configure em 4 passos:</p>
-          <ol className="text-sm text-yellow-700 space-y-1 list-decimal pl-5">
-            <li>Acesse <strong>upstash.com</strong> → crie uma conta gratuita</li>
-            <li>Clique em <strong>Create Database</strong> → escolha um nome e região</li>
-            <li>Copie <strong>UPSTASH_REDIS_REST_URL</strong> e <strong>UPSTASH_REDIS_REST_TOKEN</strong></li>
-            <li>Adicione as duas variáveis em Vercel → projeto → <strong>Settings → Environment Variables</strong></li>
-          </ol>
-          <p className="text-xs text-yellow-600">Após adicionar as variáveis, faça um novo deploy (ou redeploy) para ativar.</p>
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-6">
+          <p className="font-semibold text-red-800">Erro ao carregar relatórios</p>
+          <p className="text-sm text-red-700 mt-1">{fetchError}</p>
+          <button onClick={fetchReports} className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700">
+            Tentar novamente
+          </button>
         </div>
       </div>
     );
@@ -278,9 +275,13 @@ function ReportSection({ platform, platformColor, borderColor, analysis, approvi
 
       <div className="p-5 space-y-4">
         {/* Summary */}
-        {analysis.summary_text && (
+        {analysis.summary_text ? (
           <p className="text-sm text-gray-700 leading-relaxed">{analysis.summary_text}</p>
-        )}
+        ) : analysis.alerts.length === 0 && analysis.proposals.length === 0 ? (
+          <p className="text-sm text-green-700 bg-green-50 rounded-xl px-3 py-2.5 border border-green-100">
+            Todas as campanhas estão performando dentro dos benchmarks. Nenhuma ação necessária no momento.
+          </p>
+        ) : null}
 
         {/* Alerts */}
         {analysis.alerts.length > 0 && (
