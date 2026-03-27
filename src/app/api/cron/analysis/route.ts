@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getClients } from "@/lib/clients";
-import { saveReport } from "@/lib/reports-store";
+import { saveReport, getReport } from "@/lib/reports-store";
 import { getAdInsights } from "@/lib/meta-api";
 import { getGoogleCampaignsWithMetrics } from "@/lib/google-ads-api";
 import { analyzeMetaAds, analyzeGoogleAds } from "@/lib/analysis";
@@ -25,7 +25,16 @@ export async function GET(req: NextRequest) {
 
   for (const client of activeClients) {
     try {
-      const report: DailyReport = {
+      // Skip if today's report already has both meta and google (or meta for non-google clients)
+      const existing = await getReport(client.slug, today).catch(() => null);
+      const needsMeta = !existing?.meta;
+      const needsGoogle = client.google ? !existing?.google : false;
+      if (!needsMeta && !needsGoogle) {
+        results.push({ client: client.slug, status: "skipped", date: today });
+        continue;
+      }
+
+      const report: DailyReport = existing ?? {
         id: randomUUID(),
         client_slug: client.slug,
         client_name: client.nome,
@@ -34,7 +43,7 @@ export async function GET(req: NextRequest) {
       };
 
       // ── Meta analysis ──
-      try {
+      if (needsMeta) try {
         const [analysis, metrics] = await Promise.allSettled([
           analyzeMetaAds(client, sevenDaysAgo, today),
           getAdInsights(client.meta.ad_account_id, client.meta.access_token, sevenDaysAgo, today),
@@ -58,7 +67,7 @@ export async function GET(req: NextRequest) {
       }
 
       // ── Google analysis ──
-      if (client.google) {
+      if (needsGoogle && client.google) {
         try {
           const [analysis, gMetrics] = await Promise.allSettled([
             analyzeGoogleAds(client, sevenDaysAgo, today),
