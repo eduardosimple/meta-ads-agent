@@ -5,6 +5,8 @@ import { getClientBySlug } from "@/lib/clients";
 import { getAdInsights } from "@/lib/meta-api";
 import type { AdMetrics, AnalysisResult, Proposal, Alert } from "@/types/metrics";
 import { randomUUID } from "crypto";
+import fs from "fs/promises";
+import path from "path";
 
 export const maxDuration = 60;
 
@@ -63,53 +65,30 @@ Anúncio: "${m.ad_name}" (ID: ${m.ad_id})
 - Cliques: ${m.clicks}${m.leads > 0 ? ` | Leads: ${m.leads} | CPL: R$ ${m.cpl.toFixed(2)}` : ""}
 `).join("\n---\n");
 
+  let skillContext = "";
+  try {
+    const skillPath = path.join(process.cwd(), ".claude", "skills", "analisar-criativo", "SKILL.md");
+    skillContext = await fs.readFile(skillPath, "utf-8");
+  } catch (err) {
+    console.warn("[cron] Arquivo de skill analisar-criativo não encontrado:", err);
+  }
+
   const systemPrompt = `Você é um especialista em análise de campanhas Meta Ads para o segmento ${client.contexto.segmento} em ${client.contexto.cidade}, ${client.contexto.estado}.
 
-Benchmarks de referência:
-- CPM: R$ 5 a R$ 15 (alerta acima de R$ 20)
-- CPC: R$ 0,50 a R$ 3 (alerta acima de R$ 5)
-- CTR: 1% a 2% (alerta abaixo de 0,8%)
-- Frequência: 1,5 a 2,5 (alerta acima de 3,5)
-- CPL: R$ 30 a R$ 80 (alerta acima de R$ 100)
+Sua análise deve SEGUIR ESTRITAMENTE a sua "Skill" de metodologia de otimização detalhada abaixo.
 
-Período mínimo para decisão:
-- Orçamento pequeno: 2-3 dias antes de otimizar
-- Anúncios: 4-5 dias antes de pausar
-- Não otimize antes do tempo
+--- INÍCIO DA METODOLOGIA REQUERIDA (SKILL) ---
+${skillContext}
+--- FIM DA METODOLOGIA ---
 
-Vereditos possíveis: escalar | manter | testar_variacao | ajustar | pausar
+Vereditos possíveis extraídos da skill: escalar | manter | testar_variacao | ajustar | pausar
 
-IMPORTANTE: Responda APENAS com um JSON válido, sem texto antes ou depois, seguindo exatamente este formato:
-{
-  "proposals": [
-    {
-      "ad_id": "string",
-      "ad_name": "string",
-      "adset_name": "string",
-      "campaign_name": "string",
-      "verdict": "escalar|manter|testar_variacao|ajustar|pausar",
-      "titulo": "string curto ex: CTR abaixo do benchmark",
-      "diagnostico": "string explicando o problema ou oportunidade",
-      "metricas_problema": ["ex: CTR 0.5% (benchmark: 1%)", "CPM R$25 (acima do limite)"],
-      "acao_sugerida": "string descrevendo a ação recomendada",
-      "action": {"type": "none"}
-    }
-  ],
-  "alerts": [
-    {
-      "level": "info|warning|critical",
-      "title": "string",
-      "message": "string",
-      "entity_name": "string"
-    }
-  ],
-  "summary_text": "string com resumo geral de 2-3 frases"
-}
+IMPORTANTE: Responda APENAS utilizando o schema the tools, seguindo estritamente as regras e períodos mínimos da sua skill.
 
-Para actions:
-- Se verdict=pausar: {"type": "pause_ad", "ad_id": "ID_DO_ANUNCIO"}
-- Se verdict=escalar: {"type": "scale_budget", "adset_id": "ID_DO_ADSET", "new_budget_cents": VALOR_EM_CENTAVOS}
-- Caso contrário: {"type": "none"}`;
+Para references nas actions do JSON:
+- Se o veredito for pausar (baseado na skill): {"type": "pause_ad", "ad_id": "ID_DO_ANUNCIO"}
+- Se o veredito for escalar (baseado na skill): {"type": "scale_budget", "adset_id": "ID_DO_ADSET", "new_budget_cents": VALOR_EM_CENTAVOS}
+- Outras ações: {"type": "none"}`;
 
   const userMessage = `Analise os seguintes anúncios dos últimos 7 dias e gere propostas de otimização:\n\n${metricsText}`;
 

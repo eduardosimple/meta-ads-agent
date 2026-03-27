@@ -65,28 +65,35 @@ export default function RelatoriosPage() {
 
   useEffect(() => { fetchReports(); }, [fetchReports]);
 
-  async function approveProposal(proposal: Proposal) {
+  async function approveProposal(proposal: Proposal, isReject: boolean, reportDate: string) {
     if (!token || !selectedClient) return;
     setApproving(proposal.id);
     try {
       const res = await fetch("/api/proposals/approve", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ clientSlug: selectedClient.slug, action: proposal.action }),
+        body: JSON.stringify({ 
+          clientSlug: selectedClient.slug, 
+          date: reportDate,
+          proposalId: proposal.id,
+          action: proposal.action,
+          reject: isReject 
+        }),
       });
       const data = await res.json();
       const msg = res.ok ? data.message : `Erro: ${data.error}`;
+      const finalStatus = isReject ? "ignored" : "approved";
       // Update proposal status in selected report
       if (selected) {
         const update = (r: DailyReport) => ({
           ...r,
           meta: r.meta ? {
             ...r.meta,
-            proposals: r.meta.proposals.map(p => p.id === proposal.id ? { ...p, status: "approved" as const, result_message: msg } : p),
+            proposals: r.meta.proposals.map(p => p.id === proposal.id ? { ...p, status: finalStatus as any, result_message: msg } : p),
           } : r.meta,
           google: r.google ? {
             ...r.google,
-            proposals: r.google.proposals.map(p => p.id === proposal.id ? { ...p, status: "approved" as const, result_message: msg } : p),
+            proposals: r.google.proposals.map(p => p.id === proposal.id ? { ...p, status: finalStatus as any, result_message: msg } : p),
           } : r.google,
         });
         setSelected(update(selected));
@@ -224,7 +231,7 @@ export default function RelatoriosPage() {
                   borderColor="border-blue-100"
                   analysis={selected.meta}
                   approving={approving}
-                  onApprove={approveProposal}
+                  onApprove={(p, isReject) => approveProposal(p, isReject, selected.date)}
                 />
               )}
 
@@ -236,7 +243,7 @@ export default function RelatoriosPage() {
                   borderColor="border-orange-100"
                   analysis={selected.google}
                   approving={approving}
-                  onApprove={approveProposal}
+                  onApprove={(p, isReject) => approveProposal(p, isReject, selected.date)}
                 />
               )}
             </div>
@@ -253,7 +260,7 @@ function ReportSection({ platform, platformColor, borderColor, analysis, approvi
   borderColor: string;
   analysis: DailyReport["meta"] | DailyReport["google"];
   approving: string | null;
-  onApprove: (p: Proposal) => void;
+  onApprove: (p: Proposal, reject: boolean) => void;
 }) {
   if (!analysis) return null;
   const pending = analysis.proposals.filter(p => p.status === "pending");
@@ -304,17 +311,26 @@ function ReportSection({ platform, platformColor, borderColor, analysis, approvi
                       </div>
                       <p className="text-xs text-gray-500 mt-1">{p.ad_name}</p>
                     </div>
-                    <button
-                      onClick={() => onApprove(p)}
-                      disabled={approving === p.id}
-                      className={`shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all disabled:opacity-50 ${
-                        isAction
-                          ? "bg-green-600 text-white hover:bg-green-700"
-                          : "border border-gray-200 text-gray-600 hover:bg-gray-50"
-                      }`}
-                    >
-                      {approving === p.id ? "..." : isAction ? "✓ Aplicar" : "✓ Registrar"}
-                    </button>
+                    <div className="flex flex-col gap-2 shrink-0">
+                      <button
+                        onClick={() => onApprove(p, false)}
+                        disabled={approving === p.id}
+                        className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-all disabled:opacity-50 ${
+                          isAction
+                            ? "bg-green-600 text-white hover:bg-green-700"
+                            : "bg-blue-600 text-white hover:bg-blue-700"
+                        }`}
+                      >
+                        {approving === p.id ? "..." : isAction ? "✓ Aplicar" : "✓ Registrar"}
+                      </button>
+                      <button
+                        onClick={() => onApprove(p, true)}
+                        disabled={approving === p.id}
+                        className="text-xs font-semibold px-3 py-1.5 rounded-lg transition-all disabled:opacity-50 border border-gray-200 text-gray-500 hover:bg-red-50 hover:text-red-600 hover:border-red-200"
+                      >
+                        ✕ Recusar
+                      </button>
+                    </div>
                   </div>
                   <p className="text-xs text-gray-600">{p.diagnostico}</p>
                   <p className="text-xs text-gray-500 italic">{p.acao_sugerida}</p>
