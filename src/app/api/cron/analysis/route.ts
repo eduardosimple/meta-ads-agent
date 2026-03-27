@@ -42,19 +42,27 @@ export async function GET(req: NextRequest) {
 
         if (analysis.status === "fulfilled") {
           const m = metrics.status === "fulfilled" ? metrics.value : [];
-          report.meta = {
-            ...analysis.value,
-            spend_7d: m.reduce((s, a) => s + a.spend, 0),
-            leads_7d: m.reduce((s, a) => s + a.leads, 0),
-            avg_ctr: m.length > 0 ? m.reduce((s, a) => s + a.ctr, 0) / m.length : 0,
-          };
+          try {
+            report.meta = {
+              ...analysis.value,
+              spend_7d: m.reduce((s, a) => s + a.spend, 0),
+              leads_7d: m.reduce((s, a) => s + a.leads, 0),
+              avg_ctr: m.length > 0 ? m.reduce((s, a) => s + a.ctr, 0) / m.length : 0,
+            };
+          } catch (spreadErr) {
+            const msg = spreadErr instanceof Error ? spreadErr.message : String(spreadErr);
+            console.error(`[cron] meta spread error for ${client.slug}:`, msg, "value type:", typeof analysis.value);
+            results.push({ client: client.slug, status: "meta_spread_error", error: msg, date: today });
+          }
         } else {
           const reason = analysis.reason instanceof Error ? analysis.reason.message : String(analysis.reason);
           console.error(`[cron] meta analysis rejected for ${client.slug}:`, reason);
           results.push({ client: client.slug, status: "meta_error", error: reason, date: today });
         }
       } catch (e) {
-        console.error(`[cron] meta analysis error for ${client.slug}:`, e);
+        const emsg = e instanceof Error ? e.message : String(e);
+        console.error(`[cron] meta analysis outer error for ${client.slug}:`, emsg);
+        results.push({ client: client.slug, status: "meta_outer_error", error: emsg, date: today });
       }
 
       // ── Google analysis ──
