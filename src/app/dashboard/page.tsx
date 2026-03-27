@@ -153,14 +153,37 @@ export default function DashboardPage() {
     setAnalyzing(true);
     setAnalysisError(null);
     try {
+      // 1. Check today's cached report first (instant)
+      const today = new Date().toISOString().split("T")[0];
+      const cacheRes = await fetch(
+        `/api/daily-reports?clientSlug=${selectedClient.slug}&limit=1`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (cacheRes.ok) {
+        const cacheData = await cacheRes.json();
+        const todayReport = (cacheData.reports ?? []).find((r: { date: string }) => r.date === today);
+        const cached = platform === "google" ? todayReport?.google : todayReport?.meta;
+        if (cached) {
+          setAnalysis(cached);
+          setProposals(cached.proposals.filter((p: { status: string }) => p.status === "pending"));
+          return;
+        }
+      }
+
+      // 2. No cache — run live analysis (may be slow for new clients)
       const endpoint = platform === "google" ? "/api/google/analysis" : "/api/analysis";
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ clientSlug: selectedClient.slug }),
       });
+      if (!res.ok) {
+        const text = await res.text();
+        let msg = "Erro na análise";
+        try { msg = JSON.parse(text).error ?? msg; } catch { /* html timeout page */ }
+        throw new Error(msg);
+      }
       const data: AnalysisResult = await res.json();
-      if (!res.ok) throw new Error((data as unknown as { error: string }).error ?? "Erro na análise");
       setAnalysis(data);
       setProposals(data.proposals.filter(p => p.status === "pending"));
     } catch (err) {
