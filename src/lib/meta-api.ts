@@ -143,8 +143,15 @@ export async function getAdInsights(
 
   return (data.data ?? []).map((item) => {
     const leads = item.actions?.find((a) => a.action_type === "lead")?.value ?? "0";
+    const whatsappConvs = item.actions?.find((a) =>
+      a.action_type === "onsite_conversion.messaging_conversation_started_7d" ||
+      a.action_type === "onsite_conversion.total_messaging_connection"
+    )?.value ?? "0";
+    const postEngagements = item.actions?.find((a) => a.action_type === "post_engagement")?.value ?? "0";
     const spend = parseFloat(item.spend ?? "0");
     const leadsNum = parseInt(leads, 10);
+    const whatsappNum = parseInt(whatsappConvs, 10);
+    const engagementNum = parseInt(postEngagements, 10);
     const adInfo = adStatusMap.get(item.ad_id);
     const daysRunning = adInfo?.created_time
       ? Math.floor((Date.now() - new Date(adInfo.created_time).getTime()) / (1000 * 60 * 60 * 24))
@@ -166,6 +173,8 @@ export async function getAdInsights(
       reach: parseInt(item.reach ?? "0", 10),
       frequency: parseFloat(item.frequency ?? "0"),
       leads: leadsNum,
+      whatsapp_conversations: whatsappNum,
+      post_engagements: engagementNum,
       cpl: leadsNum > 0 ? spend / leadsNum : 0,
       days_running: daysRunning,
     };

@@ -25,7 +25,13 @@ export async function analyzeMetaAds(client: Client, dateFrom: string, dateTo: s
 
   if (adMetrics.length === 0) return empty("Nenhum anúncio ativo encontrado nos últimos 7 dias.");
 
-  const metricsText = adMetrics.map(m => `
+  const metricsText = adMetrics.map(m => {
+    const conversions: string[] = [];
+    if (m.leads > 0) conversions.push(`Leads (form): ${m.leads} | CPL: R$ ${m.cpl.toFixed(2)}`);
+    if (m.whatsapp_conversations > 0) conversions.push(`Conversas WhatsApp iniciadas: ${m.whatsapp_conversations} | CPConversa: R$ ${(m.spend / m.whatsapp_conversations).toFixed(2)}`);
+    if (m.post_engagements > 0) conversions.push(`Engajamentos: ${m.post_engagements}`);
+    const convLine = conversions.length > 0 ? `\n- Conversões: ${conversions.join(" | ")}` : "\n- Conversões: nenhuma registrada";
+    return `
 Anúncio: "${m.ad_name}" (ID: ${m.ad_id})
 - Conjunto: ${m.adset_name} | Campanha: ${m.campaign_name}
 - Status: ${m.status}
@@ -34,8 +40,8 @@ Anúncio: "${m.ad_name}" (ID: ${m.ad_id})
 - Impressões: ${m.impressions} | Alcance: ${m.reach}
 - CTR: ${m.ctr.toFixed(2)}% | CPC: R$ ${m.cpc.toFixed(2)} | CPM: R$ ${m.cpm.toFixed(2)}
 - Frequência: ${m.frequency.toFixed(1)}
-- Cliques: ${m.clicks}${m.leads > 0 ? ` | Leads: ${m.leads} | CPL: R$ ${m.cpl.toFixed(2)}` : ""}
-`).join("\n---\n");
+- Cliques: ${m.clicks}${convLine}`;
+  }).join("\n---\n");
 
   const systemPrompt = `Você é um especialista em análise de campanhas Meta Ads para o segmento ${client.contexto.segmento} em ${client.contexto.cidade}, ${client.contexto.estado}.
 
@@ -102,8 +108,10 @@ IMPORTANTE: O campo summary_text é OBRIGATÓRIO e nunca pode ficar vazio. Sempr
   const now_iso = new Date().toISOString();
   const totalSpend = adMetrics.reduce((s, m) => s + m.spend, 0);
   const totalLeads = adMetrics.reduce((s, m) => s + m.leads, 0);
+  const totalWhatsapp = adMetrics.reduce((s, m) => s + m.whatsapp_conversations, 0);
   const avgCtr = adMetrics.length > 0 ? adMetrics.reduce((s, m) => s + m.ctr, 0) / adMetrics.length : 0;
-  const defaultSummary = `${adMetrics.length} anúncio(s) analisado(s) nos últimos 7 dias. Gasto total: R$ ${totalSpend.toFixed(2)}. CTR médio: ${avgCtr.toFixed(2)}%. Leads: ${totalLeads}. Nenhuma ação urgente identificada.`;
+  const convSummary = totalLeads > 0 ? `Leads: ${totalLeads}.` : totalWhatsapp > 0 ? `Conversas WhatsApp: ${totalWhatsapp}.` : "Nenhuma conversão registrada.";
+  const defaultSummary = `${adMetrics.length} anúncio(s) analisado(s) nos últimos 7 dias. Gasto total: R$ ${totalSpend.toFixed(2)}. CTR médio: ${avgCtr.toFixed(2)}%. ${convSummary} Nenhuma ação urgente identificada.`;
 
   return {
     client_slug: client.slug,

@@ -44,6 +44,8 @@ export interface AdMetrics {
   reach: number;
   frequency: number;
   leads: number;
+  whatsapp_conversations: number;
+  post_engagements: number;
   cpl: number;
   days_running: number;
 }
