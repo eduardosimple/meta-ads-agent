@@ -6,14 +6,30 @@ import MessageBubble from "./MessageBubble";
 import ChatInput from "./ChatInput";
 import type { ChatMessage } from "@/types/chat";
 
+const CREATIVE_MARKER = "CRIATIVO_GERADO:";
+
 function generateId() {
   return Math.random().toString(36).slice(2, 11);
+}
+
+function extractCreative(content: string) {
+  const idx = content.indexOf(CREATIVE_MARKER);
+  if (idx === -1) return { text: content, creative: undefined };
+  try {
+    const jsonStr = content.slice(idx + CREATIVE_MARKER.length).trim();
+    const creative = JSON.parse(jsonStr);
+    return { text: content.slice(0, idx).trim(), creative };
+  } catch {
+    return { text: content, creative: undefined };
+  }
 }
 
 export default function ChatInterface() {
   const { token, selectedClient } = useAppContext();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
+  const [approvedIds, setApprovedIds] = useState<Set<string>>(new Set());
+  const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -68,18 +84,32 @@ export default function ChatInterface() {
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
-        let assistantId = assistantMsg.id;
+        let fullContent = "";
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           const chunk = decoder.decode(value, { stream: true });
+          fullContent += chunk;
+
+          // Exibir sem o bloco do marcador enquanto streama
+          const { text: displayText } = extractCreative(fullContent);
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === assistantId ? { ...m, content: m.content + chunk } : m
+              m.id === assistantMsg.id ? { ...m, content: displayText } : m
             )
           );
         }
+
+        // Após streaming completo — detectar criativo
+        const { text: finalText, creative } = extractCreative(fullContent);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMsg.id
+              ? { ...m, content: finalText, creative }
+              : m
+          )
+        );
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : "Erro desconhecido";
         setMessages((prev) =>
@@ -95,6 +125,15 @@ export default function ChatInterface() {
     },
     [token, selectedClient, messages]
   );
+
+  function handleApprove(message: string, messageId: string) {
+    setApprovedIds((prev) => new Set(prev).add(messageId));
+    sendMessage(message);
+  }
+
+  function handleReject(messageId: string) {
+    setRejectedIds((prev) => new Set(prev).add(messageId));
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -122,7 +161,14 @@ export default function ChatInterface() {
         )}
 
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
+          <MessageBubble
+            key={msg.id}
+            message={msg}
+            onApprove={(approvalMsg) => handleApprove(approvalMsg, msg.id)}
+            onReject={handleReject}
+            approved={approvedIds.has(msg.id)}
+            rejected={rejectedIds.has(msg.id)}
+          />
         ))}
         <div ref={bottomRef} />
       </div>

@@ -1,5 +1,12 @@
 # Skill: criar-criativo
 
+## ⛔ REGRAS CRÍTICAS — LEIA ANTES DE QUALQUER COISA
+
+1. **DESTINO = WHATSAPP** → use OBRIGATORIAMENTE `"type": "WHATSAPP_MESSAGE"` no CTA com `"app_destination": "WHATSAPP"` e `"link": "https://wa.me/55NUMERO"`. NUNCA use `LEARN_MORE` ou link de site quando o destino for WhatsApp.
+2. **INSTAGRAM** → SEMPRE perguntar o `instagram_actor_id` antes de criar o criativo. Se o usuário informou no prompt, use. Se não informou, pergunte. Se não tiver, omita o campo — mas NUNCA invente ou deixe como placeholder.
+3. O campo `instagram_actor_id` fica dentro de `object_story_spec`, no mesmo nível que `page_id` — não dentro de `link_data`.
+4. Para WhatsApp, o campo `link` dentro do `link_data` NÃO existe — use apenas o CTA com `app_destination`.
+
 ## Objetivo
 Criar um criativo (Ad Creative) com imagem/vídeo e copy otimizados para anúncios imobiliários.
 
@@ -25,8 +32,10 @@ Criar um criativo (Ad Creative) com imagem/vídeo e copy otimizados para anúnci
    - `CONTACT_US` — Fale conosco
    - `GET_QUOTE` — Solicitar orçamento
    - `SIGN_UP` — Cadastrar-se
-6. **URL de destino** — link do site ou landing page do imóvel
+   - `WHATSAPP_MESSAGE` — Enviar mensagem (usar quando destino = WhatsApp)
+6. **URL de destino** — link do site, landing page ou número WhatsApp
 7. **Imagem/Vídeo** — URL pública ou fazer upload
+8. **Instagram** — perguntar se o cliente tem conta no Instagram vinculada (`instagram_actor_id`). Se sim, incluir no criativo para que apareça no Instagram com a identidade correta.
 
 ## Upload de imagem (se necessário)
 
@@ -39,7 +48,7 @@ curl -X POST \
 
 Salve o `hash` retornado para usar no criativo.
 
-## Chamada à API — Imagem única
+## Chamada à API — Imagem única (destino Website)
 
 ```bash
 curl -X POST \
@@ -49,6 +58,7 @@ curl -X POST \
     "name": "NOME_DO_CRIATIVO",
     "object_story_spec": {
       "page_id": "PAGE_ID",
+      "instagram_actor_id": "INSTAGRAM_ACCOUNT_ID",
       "link_data": {
         "image_hash": "HASH_DA_IMAGEM",
         "link": "https://url-do-imovel.com.br",
@@ -64,6 +74,38 @@ curl -X POST \
   }' \
   -d "access_token=$META_ACCESS_TOKEN"
 ```
+
+> Se o cliente não tiver Instagram vinculado, omitir o campo `instagram_actor_id`.
+
+## Chamada à API — Imagem única (destino WhatsApp)
+
+```bash
+curl -X POST \
+  "https://graph.facebook.com/v19.0/$META_AD_ACCOUNT_ID/adcreatives" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "NOME_DO_CRIATIVO",
+    "object_story_spec": {
+      "page_id": "PAGE_ID",
+      "instagram_actor_id": "INSTAGRAM_ACCOUNT_ID",
+      "link_data": {
+        "image_hash": "HASH_DA_IMAGEM",
+        "message": "Texto principal do anúncio aqui.",
+        "name": "Título do anúncio",
+        "call_to_action": {
+          "type": "WHATSAPP_MESSAGE",
+          "value": {
+            "app_destination": "WHATSAPP",
+            "link": "https://wa.me/55XXXXXXXXXXX"
+          }
+        }
+      }
+    }
+  }' \
+  -d "access_token=$META_ACCESS_TOKEN"
+```
+
+> Para WhatsApp: substituir `55XXXXXXXXXXX` pelo número com DDI+DDD+número (sem espaços ou traços). O campo `link` do WhatsApp não usa URL de site.
 
 ## Chamada à API — Carrossel
 

@@ -100,12 +100,17 @@ IMPORTANTE: O campo summary_text é OBRIGATÓRIO e nunca pode ficar vazio. Sempr
   };
 
   const now_iso = new Date().toISOString();
+  const totalSpend = adMetrics.reduce((s, m) => s + m.spend, 0);
+  const totalLeads = adMetrics.reduce((s, m) => s + m.leads, 0);
+  const avgCtr = adMetrics.length > 0 ? adMetrics.reduce((s, m) => s + m.ctr, 0) / adMetrics.length : 0;
+  const defaultSummary = `${adMetrics.length} anúncio(s) analisado(s) nos últimos 7 dias. Gasto total: R$ ${totalSpend.toFixed(2)}. CTR médio: ${avgCtr.toFixed(2)}%. Leads: ${totalLeads}. Nenhuma ação urgente identificada.`;
+
   return {
     client_slug: client.slug,
     analyzed_at: now_iso,
     proposals: (parsed.proposals ?? []).map(p => ({ ...p, id: randomUUID(), status: "pending" as const, created_at: now_iso })),
     alerts: (parsed.alerts ?? []).map(a => ({ ...a, id: randomUUID() })),
-    summary_text: parsed.summary_text ?? "",
+    summary_text: parsed.summary_text || defaultSummary,
   };
 }
 
@@ -204,6 +209,11 @@ IMPORTANTE: O campo summary_text é OBRIGATÓRIO e nunca pode ficar vazio. Sempr
   const customerId = normalizeCustomerId(client.google.customer_id);
   const now_iso = new Date().toISOString();
 
+  const totalSpendGoogle = adGroups.reduce((s, g) => s + g.spend, 0);
+  const totalConversions = adGroups.reduce((s, g) => s + g.conversions, 0);
+  const avgCtrGoogle = adGroups.length > 0 ? adGroups.reduce((s, g) => s + g.ctr, 0) / adGroups.length : 0;
+  const defaultSummaryGoogle = `${adGroups.length} grupo(s) de anúncios analisado(s) nos últimos 7 dias. Gasto total: R$ ${totalSpendGoogle.toFixed(2)}. CTR médio: ${avgCtrGoogle.toFixed(2)}%. Conversões: ${totalConversions.toFixed(0)}. Nenhuma ação urgente identificada.`;
+
   return {
     client_slug: client.slug,
     analyzed_at: now_iso,
@@ -221,6 +231,6 @@ IMPORTANTE: O campo summary_text é OBRIGATÓRIO e nunca pode ficar vazio. Sempr
       return { ...p, verdict: p.verdict as Proposal["verdict"], action, id: randomUUID(), status: "pending" as const, created_at: now_iso };
     }),
     alerts: (parsed.alerts ?? []).map(a => ({ ...a, id: randomUUID() })),
-    summary_text: parsed.summary_text ?? "",
+    summary_text: parsed.summary_text || defaultSummaryGoogle,
   };
 }

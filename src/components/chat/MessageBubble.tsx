@@ -1,12 +1,17 @@
 "use client";
 
 import type { ChatMessage } from "@/types/chat";
+import CreativeApprovalCard from "./CreativeApprovalCard";
 
 interface Props {
   message: ChatMessage;
+  onApprove?: (message: string) => void;
+  onReject?: (messageId: string) => void;
+  approved?: boolean;
+  rejected?: boolean;
 }
 
-export default function MessageBubble({ message }: Props) {
+export default function MessageBubble({ message, onApprove, onReject, approved, rejected }: Props) {
   const isUser = message.role === "user";
 
   return (
@@ -44,6 +49,16 @@ export default function MessageBubble({ message }: Props) {
             minute: "2-digit",
           })}
         </p>
+
+        {message.creative && onApprove && onReject && (
+          <CreativeApprovalCard
+            creative={message.creative}
+            onApprove={onApprove}
+            onReject={() => onReject(message.id)}
+            approved={approved}
+            rejected={rejected}
+          />
+        )}
       </div>
 
       {isUser && (

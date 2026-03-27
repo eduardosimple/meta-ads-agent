@@ -35,24 +35,26 @@ export async function saveReport(report: DailyReport): Promise<void> {
 
 export async function getReport(slug: string, date: string): Promise<DailyReport | null> {
   const sb = getSupabase();
-  if (!sb) return null;
-  const { data } = await sb
+  if (!sb) throw new Error("Supabase não configurado: SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY ausente");
+  const { data, error } = await sb
     .from("daily_reports")
     .select("*")
     .eq("client_slug", slug)
     .eq("date", date)
     .single();
+  if (error && error.code !== "PGRST116") throw new Error(error.message);
   return data ?? null;
 }
 
 export async function getRecentReports(slug: string, limit = 7): Promise<DailyReport[]> {
   const sb = getSupabase();
-  if (!sb) return [];
-  const { data } = await sb
+  if (!sb) throw new Error("Supabase não configurado: SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY ausente");
+  const { data, error } = await sb
     .from("daily_reports")
     .select("*")
     .eq("client_slug", slug)
     .order("date", { ascending: false })
     .limit(limit);
+  if (error) throw new Error(error.message);
   return data ?? [];
 }

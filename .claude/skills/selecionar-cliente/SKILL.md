@@ -59,6 +59,8 @@ echo "Cidade:  $CLIENT_CIDADE"
 | `META_APP_SECRET` | Chave secreta do app |
 | `META_PAGE_ID` | ID da página do Facebook |
 | `META_PAGE_NAME` | Nome da página |
+| `META_INSTAGRAM_ACTOR_ID` | ID da conta do Instagram vinculada (se existir) |
+| `META_WHATSAPP_NUMBER` | Número do WhatsApp com DDI+DDD (se existir) |
 | `CLIENT_CIDADE` | Cidade principal do cliente |
 | `CLIENT_ESTADO` | Estado |
 | `CLIENT_ORCAMENTO_PADRAO` | Orçamento diário padrão (centavos) |
@@ -86,7 +88,9 @@ Edite o arquivo `clients.json` seguindo o modelo do `clients.example.json`:
     "app_id": "APP_ID_AQUI",
     "app_secret": "APP_SECRET_AQUI",
     "page_id": "PAGE_ID_AQUI",
-    "page_name": "Nome da Página"
+    "page_name": "Nome da Página",
+    "instagram_actor_id": "INSTAGRAM_ID_AQUI",
+    "whatsapp_number": "5549999999999"
   },
   "contexto": {
     "segmento": "imobiliário",

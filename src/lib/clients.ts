@@ -2,10 +2,10 @@ import { createClient } from "@supabase/supabase-js";
 import type { Client, ClientsFile } from "@/types/client";
 
 const supabaseUrl = process.env.SUPABASE_URL ?? "";
-const supabaseKey = process.env.SUPABASE_ANON_KEY ?? "";
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_ANON_KEY ?? "";
 
 function getSupabase() {
-  return createClient(supabaseUrl, supabaseKey);
+  return createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
 // Fallback: read clients from CLIENTS_JSON env var (JSON string)

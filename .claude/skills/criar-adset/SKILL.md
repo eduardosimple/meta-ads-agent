@@ -1,5 +1,12 @@
 # Skill: criar-adset
 
+## ⛔ REGRAS CRÍTICAS — LEIA ANTES DE QUALQUER COISA
+
+1. **DESTINO = WHATSAPP** → use OBRIGATORIAMENTE `"destination_type": "WHATSAPP"` e `"optimization_goal": "CONVERSATIONS"`. NUNCA use `destination_type: "WEBSITE"` para WhatsApp.
+2. **DESTINO = WEBSITE** → use `"destination_type": "WEBSITE"` e `"optimization_goal": "LEAD_GENERATION"`.
+3. **NUNCA** coloque URL de wa.me como link no ad set — o número do WhatsApp vai no criativo, não aqui.
+4. Se o usuário especificou o destino no prompt, use exatamente o que foi pedido — não interprete, não troque.
+
 ## Objetivo
 Criar um conjunto de anúncios (Ad Set) vinculado a uma campanha, com segmentação otimizada para o mercado imobiliário.
 
@@ -18,10 +25,16 @@ Criar um conjunto de anúncios (Ad Set) vinculado a uma campanha, com segmentaç
 4. **Orçamento** (se não definido na campanha) — diário em centavos
 5. **Página do Facebook** vinculada (`page_id`)
 6. **Pixel do Facebook** (opcional, mas recomendado)
-7. **Otimização de entrega:**
-   - `LEAD_GENERATION` → `optimization_goal: LEAD_GENERATION`
-   - `LINK_CLICKS` → `optimization_goal: LINK_CLICKS`
-8. **Data de início e fim**
+7. **Destino do anúncio** — OBRIGATÓRIO perguntar:
+   - `WEBSITE` → site/landing page
+   - `WHATSAPP` → abre conversa no WhatsApp
+   - `INSTAGRAM_DIRECT` → DM no Instagram
+   - `FACEBOOK` → formulário nativo
+8. **Otimização de entrega** (derivada do destino):
+   - Website / Lead form → `optimization_goal: LEAD_GENERATION`
+   - WhatsApp / Mensagens → `optimization_goal: CONVERSATIONS`
+   - Tráfego → `optimization_goal: LINK_CLICKS`
+9. **Data de início e fim**
 
 ## Segmentação padrão para imobiliário
 
@@ -47,7 +60,7 @@ Criar um conjunto de anúncios (Ad Set) vinculado a uma campanha, com segmentaç
 
 > **Nota:** Com `special_ad_categories: HOUSING`, a Meta restringe idade, gênero e CEP. Use localização por cidade/raio.
 
-## Chamada à API
+## Chamada à API — Destino Website / Lead Form
 
 ```bash
 curl -X POST \
@@ -60,6 +73,7 @@ curl -X POST \
     "daily_budget": 5000,
     "billing_event": "IMPRESSIONS",
     "optimization_goal": "LEAD_GENERATION",
+    "destination_type": "WEBSITE",
     "start_time": "2026-03-14T00:00:00-0300",
     "targeting": {
       "geo_locations": {
@@ -73,7 +87,35 @@ curl -X POST \
   -d "access_token=$META_ACCESS_TOKEN"
 ```
 
-> **IMPORTANTE:** `status` sempre `"PAUSED"`.
+## Chamada à API — Destino WhatsApp
+
+```bash
+curl -X POST \
+  "https://graph.facebook.com/v19.0/$META_AD_ACCOUNT_ID/adsets" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "NOME_DO_ADSET",
+    "campaign_id": "CAMPAIGN_ID",
+    "status": "PAUSED",
+    "daily_budget": 5000,
+    "billing_event": "IMPRESSIONS",
+    "optimization_goal": "CONVERSATIONS",
+    "destination_type": "WHATSAPP",
+    "promoted_object": {"page_id": "PAGE_ID"},
+    "start_time": "2026-03-14T00:00:00-0300",
+    "targeting": {
+      "geo_locations": {
+        "cities": [{"key": "CITY_KEY", "radius": 20, "distance_unit": "kilometer"}]
+      },
+      "age_min": 25,
+      "age_max": 65
+    },
+    "special_ad_category_country": ["BR"]
+  }' \
+  -d "access_token=$META_ACCESS_TOKEN"
+```
+
+> **IMPORTANTE:** `status` sempre `"PAUSED"`. Para WhatsApp, `destination_type: "WHATSAPP"` e `optimization_goal: "CONVERSATIONS"` são obrigatórios.
 
 ## Buscar chave de cidade
 
