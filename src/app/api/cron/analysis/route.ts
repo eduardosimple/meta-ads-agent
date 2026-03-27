@@ -48,6 +48,10 @@ export async function GET(req: NextRequest) {
             leads_7d: m.reduce((s, a) => s + a.leads, 0),
             avg_ctr: m.length > 0 ? m.reduce((s, a) => s + a.ctr, 0) / m.length : 0,
           };
+        } else {
+          const reason = analysis.reason instanceof Error ? analysis.reason.message : String(analysis.reason);
+          console.error(`[cron] meta analysis rejected for ${client.slug}:`, reason);
+          results.push({ client: client.slug, status: "meta_error", error: reason, date: today });
         }
       } catch (e) {
         console.error(`[cron] meta analysis error for ${client.slug}:`, e);
