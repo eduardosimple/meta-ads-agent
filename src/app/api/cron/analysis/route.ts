@@ -42,27 +42,19 @@ export async function GET(req: NextRequest) {
 
         if (analysis.status === "fulfilled") {
           const m = metrics.status === "fulfilled" ? metrics.value : [];
-          try {
-            report.meta = {
-              ...analysis.value,
-              spend_7d: m.reduce((s, a) => s + a.spend, 0),
-              leads_7d: m.reduce((s, a) => s + a.leads, 0),
-              avg_ctr: m.length > 0 ? m.reduce((s, a) => s + a.ctr, 0) / m.length : 0,
-            };
-          } catch (spreadErr) {
-            const msg = spreadErr instanceof Error ? spreadErr.message : String(spreadErr);
-            console.error(`[cron] meta spread error for ${client.slug}:`, msg, "value type:", typeof analysis.value);
-            results.push({ client: client.slug, status: "meta_spread_error", error: msg, date: today });
-          }
+          report.meta = {
+            ...analysis.value,
+            spend_7d: m.reduce((s, a) => s + a.spend, 0),
+            leads_7d: m.reduce((s, a) => s + a.leads, 0),
+            avg_ctr: m.length > 0 ? m.reduce((s, a) => s + a.ctr, 0) / m.length : 0,
+          };
         } else {
           const reason = analysis.reason instanceof Error ? analysis.reason.message : String(analysis.reason);
           console.error(`[cron] meta analysis rejected for ${client.slug}:`, reason);
           results.push({ client: client.slug, status: "meta_error", error: reason, date: today });
         }
       } catch (e) {
-        const emsg = e instanceof Error ? e.message : String(e);
-        console.error(`[cron] meta analysis outer error for ${client.slug}:`, emsg);
-        results.push({ client: client.slug, status: "meta_outer_error", error: emsg, date: today });
+        console.error(`[cron] meta analysis error for ${client.slug}:`, e);
       }
 
       // ── Google analysis ──
@@ -92,12 +84,8 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      const metaSummary = report.meta
-        ? `meta OK (${report.meta.alerts?.length ?? 0} alerts, summary_len=${report.meta.summary_text?.length ?? 0})`
-        : "meta=undefined";
-      console.log(`[cron] pre-save ${client.slug}:`, metaSummary);
       await saveReport(report);
-      results.push({ client: client.slug, status: "ok", date: today, meta_ok: !!report.meta });
+      results.push({ client: client.slug, status: "ok", date: today });
     } catch (e) {
       console.error(`[cron] error for ${client.slug}:`, e);
       results.push({ client: client.slug, status: "error" });
