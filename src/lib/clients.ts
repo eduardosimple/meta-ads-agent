@@ -21,11 +21,7 @@ function getClientsFromEnv(): Client[] {
 }
 
 export async function getClients(): Promise<Client[]> {
-  // CLIENTS_JSON takes priority — always works, no DB dependency
-  const fromEnv = getClientsFromEnv();
-  if (fromEnv.length > 0) return fromEnv;
-
-  // Fallback: Supabase
+  // Supabase takes priority
   if (supabaseUrl && supabaseKey) {
     try {
       const { data, error } = await getSupabase()
@@ -34,18 +30,19 @@ export async function getClients(): Promise<Client[]> {
         .order("nome");
       if (!error && data && data.length > 0) return data.map(rowToClient);
     } catch {
-      // ignore
+      // ignore, fallback silently
     }
   }
+
+  // Fallback: CLIENTS_JSON
+  const fromEnv = getClientsFromEnv();
+  if (fromEnv.length > 0) return fromEnv;
+
   return [];
 }
 
 export async function getClientBySlug(slug: string): Promise<Client | null> {
-  // CLIENTS_JSON takes priority
-  const fromEnv = getClientsFromEnv();
-  if (fromEnv.length > 0) return fromEnv.find((c) => c.slug === slug) ?? null;
-
-  // Fallback: Supabase
+  // Supabase takes priority
   if (supabaseUrl && supabaseKey) {
     try {
       const { data, error } = await getSupabase()
@@ -55,9 +52,14 @@ export async function getClientBySlug(slug: string): Promise<Client | null> {
         .single();
       if (!error && data) return rowToClient(data);
     } catch {
-      // ignore
+      // ignore, fallback silently
     }
   }
+
+  // Fallback: CLIENTS_JSON
+  const fromEnv = getClientsFromEnv();
+  if (fromEnv.length > 0) return fromEnv.find((c) => c.slug === slug) ?? null;
+
   return null;
 }
 
@@ -92,7 +94,21 @@ async function saveClientsToVercel(clients: Client[]): Promise<void> {
 }
 
 export async function upsertClient(client: Client): Promise<void> {
-  // Se CLIENTS_JSON está configurado, salvar via Vercel API
+  // Supabase takes priority
+  if (supabaseUrl && supabaseKey) {
+    try {
+      const { error } = await getSupabase()
+        .from("clients")
+        .upsert(clientToRow(client), { onConflict: "slug" });
+      if (error) throw new Error(error.message ?? JSON.stringify(error));
+      return; // Realizado com sucesso no Supabase
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      throw new Error(typeof e === "object" ? JSON.stringify(e) : String(e));
+    }
+  }
+
+  // Fallback: Vercel API
   const existing = getClientsFromEnv();
   if (existing.length > 0 || process.env.CLIENTS_JSON) {
     const all = getClientsFromEnv();
@@ -106,23 +122,21 @@ export async function upsertClient(client: Client): Promise<void> {
     return;
   }
 
-  // Fallback: Supabase
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error("Nenhum método de persistência configurado.");
-  }
-  try {
-    const { error } = await getSupabase()
-      .from("clients")
-      .upsert(clientToRow(client), { onConflict: "slug" });
-    if (error) throw new Error(error.message ?? JSON.stringify(error));
-  } catch (e) {
-    if (e instanceof Error) throw e;
-    throw new Error(typeof e === "object" ? JSON.stringify(e) : String(e));
-  }
+  throw new Error("Nenhum método de persistência configurado.");
 }
 
 export async function deleteClientBySlug(slug: string): Promise<boolean> {
-  // Se CLIENTS_JSON está configurado, deletar via Vercel API
+  // Supabase takes priority
+  if (supabaseUrl && supabaseKey) {
+    const { error, count } = await getSupabase()
+      .from("clients")
+      .delete({ count: "exact" })
+      .eq("slug", slug);
+    if (!error && (count ?? 0) > 0) return true;
+    if (error) throw new Error(error.message ?? JSON.stringify(error));
+  }
+
+  // Fallback: Vercel API
   const existing = getClientsFromEnv();
   if (existing.length > 0 || process.env.CLIENTS_JSON) {
     const all = getClientsFromEnv();
@@ -132,13 +146,7 @@ export async function deleteClientBySlug(slug: string): Promise<boolean> {
     return true;
   }
 
-  // Fallback: Supabase
-  const { error, count } = await getSupabase()
-    .from("clients")
-    .delete({ count: "exact" })
-    .eq("slug", slug);
-  if (error) throw new Error(error.message ?? JSON.stringify(error));
-  return (count ?? 0) > 0;
+  return false;
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
