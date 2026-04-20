@@ -28,20 +28,22 @@ function getSupabase() {
 export async function saveDesignBrief(brief: DesignBrief): Promise<void> {
   const sb = getSupabase();
   if (!sb) return;
-  await sb.from("client_design_briefs").upsert(
+  const { error } = await sb.from("client_design_briefs").upsert(
     { ...brief },
     { onConflict: "client_slug" }
   );
+  if (error && error.code !== "PGRST205") console.error("saveDesignBrief error:", error.message);
 }
 
 export async function getDesignBrief(slug: string): Promise<DesignBrief | null> {
   const sb = getSupabase();
   if (!sb) return null;
-  const { data } = await sb
+  const { data, error } = await sb
     .from("client_design_briefs")
     .select("*")
     .eq("client_slug", slug)
     .single();
+  if (error && (error.code === "PGRST116" || error.code === "PGRST205")) return null;
   return data ?? null;
 }
 
