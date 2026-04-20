@@ -7,8 +7,8 @@ export interface DailyReport {
   client_name: string;
   date: string; // YYYY-MM-DD
   created_at: string;
-  meta?: AnalysisResult;
-  google?: AnalysisResult;
+  meta?: AnalysisResult & { spend_7d?: number; leads_7d?: number; avg_ctr?: number };
+  google?: AnalysisResult & { spend_7d?: number; conversions_7d?: number; avg_ctr?: number; cost_per_conversion?: number };
 }
 
 function getSupabase() {
