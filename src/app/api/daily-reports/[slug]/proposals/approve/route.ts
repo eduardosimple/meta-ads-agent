@@ -60,7 +60,7 @@ export async function POST(
   if (platform !== "meta") return NextResponse.json({ error: "Only Meta supported for approval" }, { status: 400 });
 
   const { access_token, ad_account_id, page_id } = client.meta;
-  const instagram_actor_id = (client.meta as Record<string, unknown>).instagram_actor_id as string | undefined;
+  const instagram_actor_id = (client.meta as unknown as Record<string, unknown>).instagram_actor_id as string | undefined;
 
   try {
     // 3. Get adset_id from the original ad
