@@ -2,6 +2,7 @@ import { getReportsByDate } from "@/lib/reports-store";
 import { notFound } from "next/navigation";
 import type { DailyReport } from "@/lib/reports-store";
 import type { Proposal } from "@/types/metrics";
+import ApprovalCard from "@/components/report/ApprovalCard";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -30,7 +31,7 @@ export default async function DailyReportPage({
   searchParams,
 }: {
   params: { date: string };
-  searchParams: { key?: string };
+  searchParams: { key?: string; [k: string]: string | undefined };
 }) {
   const { date } = params;
 
@@ -53,13 +54,13 @@ export default async function DailyReportPage({
   }
 
   const needsCreative = reports.flatMap(r => {
-    const items: Array<{ client: string; proposal: Proposal; platform: "Meta" | "Google" }> = [];
+    const items: Array<{ clientSlug: string; client: string; proposal: Proposal; platform: "meta" | "google" }> = [];
     (r.meta?.proposals ?? [])
       .filter(p => (p.verdict === "pausar" || p.verdict === "ajustar") && p.status === "pending")
-      .forEach(p => items.push({ client: r.client_name, proposal: p, platform: "Meta" }));
+      .forEach(p => items.push({ clientSlug: r.client_slug, client: r.client_name, proposal: p, platform: "meta" }));
     (r.google?.proposals ?? [])
       .filter(p => (p.verdict === "pausar" || p.verdict === "ajustar") && p.status === "pending")
-      .forEach(p => items.push({ client: r.client_name, proposal: p, platform: "Google" }));
+      .forEach(p => items.push({ clientSlug: r.client_slug, client: r.client_name, proposal: p, platform: "google" }));
     return items;
   });
 
@@ -113,42 +114,51 @@ export default async function DailyReportPage({
                 {needsCreative.length} criativo{needsCreative.length !== 1 ? "s" : ""} para substituir
               </p>
             </div>
-            <div className="p-4 space-y-2">
-              {needsCreative.map(({ client, proposal, platform }, idx) => (
-                <div key={idx} className="bg-white rounded-xl p-3.5 border border-orange-100">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-gray-400">{client} · {platform}</p>
-                      <p className="text-sm font-semibold text-gray-800 mt-0.5 truncate">{proposal.ad_name}</p>
-                      <p className="text-xs text-gray-600 mt-1 leading-relaxed">{proposal.diagnostico}</p>
-                      {proposal.metricas_problema.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-1.5">
-                          {proposal.metricas_problema.map((m, i) => (
-                            <span key={i} className="text-xs px-1.5 py-0.5 bg-gray-100 rounded text-gray-500">{m}</span>
-                          ))}
-                        </div>
-                      )}
-                      <p className="text-xs text-gray-400 mt-1.5 italic">{proposal.acao_sugerida}</p>
-                      {proposal.copy_sugerida && (
-                        <div className="mt-3 space-y-2">
-                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Copy sugerida</p>
-                          {(["versao_a", "versao_b"] as const).map((v) => {
-                            const c = proposal.copy_sugerida![v];
-                            return (
-                              <div key={v} className="bg-blue-50 rounded-lg px-3 py-2 border border-blue-100">
-                                <p className="text-xs font-semibold text-blue-600 mb-0.5">{v === "versao_a" ? "Versão A" : "Versão B"}</p>
-                                <p className="text-xs font-medium text-gray-800">{c.headline}</p>
-                                <p className="text-xs text-gray-600 mt-0.5">{c.texto}</p>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
+            <div className="p-4 space-y-3">
+              {needsCreative.map(({ clientSlug, client, proposal, platform }, idx) => (
+                <div key={idx} className="bg-white rounded-xl border border-orange-100 overflow-hidden">
+                  <div className="p-3.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-gray-400">{client} · {platform.toUpperCase()}</p>
+                        <p className="text-sm font-semibold text-gray-800 mt-0.5 truncate">{proposal.ad_name}</p>
+                        <p className="text-xs text-gray-600 mt-1 leading-relaxed">{proposal.diagnostico}</p>
+                        {proposal.metricas_problema.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {proposal.metricas_problema.map((m, i) => (
+                              <span key={i} className="text-xs px-1.5 py-0.5 bg-gray-100 rounded text-gray-500">{m}</span>
+                            ))}
+                          </div>
+                        )}
+                        <p className="text-xs text-gray-400 mt-1.5 italic">{proposal.acao_sugerida}</p>
+                      </div>
+                      <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${verdictColor[proposal.verdict] ?? ""}`}>
+                        {verdictLabel[proposal.verdict] ?? proposal.verdict}
+                      </span>
                     </div>
-                    <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${verdictColor[proposal.verdict] ?? ""}`}>
-                      {verdictLabel[proposal.verdict] ?? proposal.verdict}
-                    </span>
                   </div>
+
+                  {proposal.copy_sugerida ? (
+                    <div className="border-t border-orange-50 px-3.5 pb-3.5">
+                      <ApprovalCard
+                        clientSlug={clientSlug}
+                        date={date}
+                        adId={proposal.ad_id}
+                        platform={platform}
+                        adName={proposal.ad_name}
+                        imageBase64={proposal.copy_sugerida.image_base64}
+                        versaoA={proposal.copy_sugerida.versao_a}
+                        versaoB={proposal.copy_sugerida.versao_b}
+                        initialStatus={proposal.status}
+                        resultMessage={proposal.result_message}
+                        reportKey={searchParams.key ?? ""}
+                      />
+                    </div>
+                  ) : (
+                    <div className="border-t border-orange-50 px-3.5 py-2.5">
+                      <p className="text-xs text-gray-400 italic">Criativo substituto sendo gerado...</p>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

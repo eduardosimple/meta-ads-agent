@@ -79,6 +79,7 @@ export interface Proposal {
   copy_sugerida?: {
     versao_a: { headline: string; texto: string; cta: string };
     versao_b: { headline: string; texto: string; cta: string };
+    image_base64?: string;
   };
 }
 

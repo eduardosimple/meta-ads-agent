@@ -352,3 +352,94 @@ export async function pauseEntity(
   });
   return true;
 }
+
+export async function getAdAdsetId(
+  adId: string,
+  accessToken: string
+): Promise<string> {
+  const data = await metaFetch<{ adset_id: string }>(
+    `/${adId}?fields=adset_id&access_token=${encodeURIComponent(accessToken)}`
+  );
+  return data.adset_id;
+}
+
+export async function uploadAdImage(
+  adAccountId: string,
+  accessToken: string,
+  imageBytes: Buffer,
+  filename: string
+): Promise<string> {
+  const form = new FormData();
+  form.append("access_token", accessToken);
+  form.append(
+    "filename",
+    new Blob([imageBytes], { type: "image/png" }),
+    filename
+  );
+  const url = `${META_API_BASE}/${adAccountId}/adimages`;
+  const res = await fetch(url, { method: "POST", body: form });
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error?.message ?? "adimages upload failed");
+  const images = data.images as Record<string, { hash: string }>;
+  const hash = Object.values(images)[0]?.hash;
+  if (!hash) throw new Error("No image hash returned from Meta");
+  return hash;
+}
+
+export async function createAdCreative(
+  adAccountId: string,
+  accessToken: string,
+  opts: {
+    name: string;
+    pageId: string;
+    instagramActorId?: string;
+    imageHash: string;
+    message: string;
+    headline: string;
+    whatsappNumber: string;
+  }
+): Promise<string> {
+  const story: Record<string, unknown> = {
+    page_id: opts.pageId,
+    link_data: {
+      image_hash: opts.imageHash,
+      message: opts.message,
+      name: opts.headline,
+      call_to_action: {
+        type: "WHATSAPP_MESSAGE",
+        value: { app_destination: "WHATSAPP" },
+      },
+    },
+  };
+  if (opts.instagramActorId) story.instagram_actor_id = opts.instagramActorId;
+
+  const data = await metaFetch<{ id: string }>(`/${adAccountId}/adcreatives`, {
+    method: "POST",
+    body: JSON.stringify({
+      name: opts.name,
+      object_story_spec: story,
+      access_token: accessToken,
+    }),
+  });
+  return data.id;
+}
+
+export async function createAd(
+  adAccountId: string,
+  accessToken: string,
+  adsetId: string,
+  creativeId: string,
+  adName: string
+): Promise<string> {
+  const data = await metaFetch<{ id: string }>(`/${adAccountId}/ads`, {
+    method: "POST",
+    body: JSON.stringify({
+      name: adName,
+      adset_id: adsetId,
+      creative: { creative_id: creativeId },
+      status: "ACTIVE",
+      access_token: accessToken,
+    }),
+  });
+  return data.id;
+}
