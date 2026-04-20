@@ -1,8 +1,10 @@
 import { getReportsByDate } from "@/lib/reports-store";
+import { getDesignBrief } from "@/lib/design-briefs";
 import { notFound } from "next/navigation";
 import type { DailyReport } from "@/lib/reports-store";
 import type { Proposal } from "@/types/metrics";
 import ApprovalCard from "@/components/report/ApprovalCard";
+import CreateCreativeCard from "@/components/report/CreateCreativeCard";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -52,6 +54,8 @@ export default async function DailyReportPage({
   } catch {
     // show empty state
   }
+
+  const briefs = await Promise.all(reports.map(r => getDesignBrief(r.client_slug).catch(() => null)));
 
   const needsCreative = reports.flatMap(r => {
     const items: Array<{ clientSlug: string; client: string; proposal: Proposal; platform: "meta" | "google" }> = [];
@@ -166,13 +170,25 @@ export default async function DailyReportPage({
         )}
 
         {/* Per-client cards */}
-        {reports.map(report => {
+        {reports.map((report, reportIdx) => {
           const allPending = [
             ...(report.meta?.proposals ?? []),
             ...(report.google?.proposals ?? []),
           ].filter(p => p.status === "pending");
           const hasCritical = allPending.some(p => p.verdict === "pausar");
           const topAction = report.meta?.plano_de_acao?.[0];
+
+          const allProposals = [
+            ...(report.meta?.proposals ?? []),
+            ...(report.google?.proposals ?? []),
+          ];
+          const worstAd = allProposals.find(p =>
+            (p.verdict === "pausar" || p.verdict === "ajustar") && p.status === "pending"
+          );
+          const bestAd = allProposals.find(p =>
+            p.verdict === "escalar" || p.verdict === "manter"
+          );
+          const brief = briefs[reportIdx];
 
           return (
             <div
@@ -246,6 +262,31 @@ export default async function DailyReportPage({
                     <span className="font-semibold">#{topAction.prioridade} {topAction.titulo}</span>
                     {" — "}{topAction.descricao}
                   </div>
+                )}
+
+                {worstAd && bestAd && (
+                  <CreateCreativeCard
+                    clientSlug={report.client_slug}
+                    clientName={report.client_name}
+                    date={date}
+                    worstAd={{
+                      ad_id: worstAd.ad_id,
+                      ad_name: worstAd.ad_name,
+                      verdict: worstAd.verdict,
+                      diagnostico: worstAd.diagnostico,
+                      metricas_problema: worstAd.metricas_problema,
+                    }}
+                    bestAd={{
+                      ad_id: bestAd.ad_id,
+                      ad_name: bestAd.ad_name,
+                      verdict: bestAd.verdict,
+                      diagnostico: bestAd.diagnostico,
+                      metricas_problema: bestAd.metricas_problema,
+                    }}
+                    bestThumbnailUrl={brief?.thumbnail_url ?? undefined}
+                    hasBrief={!!brief}
+                    reportKey={searchParams.key ?? ""}
+                  />
                 )}
               </div>
             </div>

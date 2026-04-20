@@ -443,3 +443,40 @@ export async function createAd(
   });
   return data.id;
 }
+
+export async function getAdCreativeId(
+  adId: string,
+  accessToken: string
+): Promise<string | null> {
+  const data = await metaFetch<{ creative?: { id: string } }>(
+    `/${adId}?fields=creative{id}&access_token=${encodeURIComponent(accessToken)}`
+  );
+  return data.creative?.id ?? null;
+}
+
+export async function getCreativeThumbnail(
+  creativeId: string,
+  accessToken: string
+): Promise<{ thumbnail_url: string | null; type: "image" | "video" | "unknown" }> {
+  const data = await metaFetch<{
+    thumbnail_url?: string;
+    image_url?: string;
+    video_id?: string;
+    object_story_spec?: {
+      video_data?: { image_url?: string };
+      link_data?: { picture?: string };
+    };
+  }>(
+    `/${creativeId}?fields=thumbnail_url,image_url,video_id,object_story_spec&access_token=${encodeURIComponent(accessToken)}`
+  );
+
+  const isVideo = !!data.video_id || !!data.object_story_spec?.video_data;
+  const url =
+    data.thumbnail_url ??
+    data.object_story_spec?.video_data?.image_url ??
+    data.object_story_spec?.link_data?.picture ??
+    data.image_url ??
+    null;
+
+  return { thumbnail_url: url, type: isVideo ? "video" : url ? "image" : "unknown" };
+}

@@ -72,7 +72,7 @@ export interface Proposal {
   metricas_problema: string[];
   acao_sugerida: string;
   action: ProposalAction;
-  status: "pending" | "approved" | "rejected" | "ignored";
+  status: "pending" | "approved" | "rejected" | "ignored" | "creative_requested" | "generating";
   created_at: string;
   resolved_at?: string;
   result_message?: string;
