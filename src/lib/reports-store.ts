@@ -7,8 +7,8 @@ export interface DailyReport {
   client_name: string;
   date: string; // YYYY-MM-DD
   created_at: string;
-  meta?: AnalysisResult & { spend_7d?: number; leads_7d?: number; avg_ctr?: number };
-  google?: AnalysisResult & { spend_7d?: number; conversions_7d?: number; avg_ctr?: number; cost_per_conversion?: number };
+  meta?: AnalysisResult;
+  google?: AnalysisResult;
 }
 
 function getSupabase() {
@@ -44,6 +44,17 @@ export async function getReport(slug: string, date: string): Promise<DailyReport
     .single();
   if (error && error.code !== "PGRST116") throw new Error(error.message);
   return data ?? null;
+}
+
+export async function getReportsByDate(date: string): Promise<DailyReport[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("daily_reports")
+    .select("*")
+    .eq("date", date);
+  if (error) throw new Error(error.message);
+  return data ?? [];
 }
 
 export async function getRecentReports(slug: string, limit = 7): Promise<DailyReport[]> {
