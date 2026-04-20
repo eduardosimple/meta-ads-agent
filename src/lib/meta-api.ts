@@ -373,7 +373,7 @@ export async function uploadAdImage(
   form.append("access_token", accessToken);
   form.append(
     "filename",
-    new Blob([imageBytes], { type: "image/png" }),
+    new Blob([imageBytes.buffer as ArrayBuffer], { type: "image/png" }),
     filename
   );
   const url = `${META_API_BASE}/${adAccountId}/adimages`;
