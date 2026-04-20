@@ -129,6 +129,21 @@ export default async function DailyReportPage({
                         </div>
                       )}
                       <p className="text-xs text-gray-400 mt-1.5 italic">{proposal.acao_sugerida}</p>
+                      {proposal.copy_sugerida && (
+                        <div className="mt-3 space-y-2">
+                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Copy sugerida</p>
+                          {(["versao_a", "versao_b"] as const).map((v) => {
+                            const c = proposal.copy_sugerida![v];
+                            return (
+                              <div key={v} className="bg-blue-50 rounded-lg px-3 py-2 border border-blue-100">
+                                <p className="text-xs font-semibold text-blue-600 mb-0.5">{v === "versao_a" ? "Versão A" : "Versão B"}</p>
+                                <p className="text-xs font-medium text-gray-800">{c.headline}</p>
+                                <p className="text-xs text-gray-600 mt-0.5">{c.texto}</p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                     <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${verdictColor[proposal.verdict] ?? ""}`}>
                       {verdictLabel[proposal.verdict] ?? proposal.verdict}

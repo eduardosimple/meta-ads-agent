@@ -76,6 +76,10 @@ export interface Proposal {
   created_at: string;
   resolved_at?: string;
   result_message?: string;
+  copy_sugerida?: {
+    versao_a: { headline: string; texto: string; cta: string };
+    versao_b: { headline: string; texto: string; cta: string };
+  };
 }
 
 export interface ActionItem {
