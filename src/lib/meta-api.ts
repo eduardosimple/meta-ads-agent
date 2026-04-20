@@ -181,6 +181,149 @@ export async function getAdInsights(
   });
 }
 
+export interface CampaignData {
+  campaign_id: string;
+  campaign_name: string;
+  objective: string;
+  status: string;
+  daily_budget?: number;
+  lifetime_budget?: number;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  leads: number;
+  whatsapp_conversations: number;
+}
+
+export interface AdsetData {
+  adset_id: string;
+  adset_name: string;
+  campaign_id: string;
+  campaign_name: string;
+  status: string;
+  daily_budget?: number;
+  optimization_goal: string;
+  bid_strategy?: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  leads: number;
+  whatsapp_conversations: number;
+  targeting_summary: string;
+}
+
+function formatTargeting(t: Record<string, unknown> | undefined): string {
+  if (!t) return "Segmentação ampla";
+  const parts: string[] = [];
+  const ageMin = t.age_min as number | undefined;
+  const ageMax = t.age_max as number | undefined;
+  if (ageMin || ageMax) parts.push(`Idade: ${ageMin ?? 18}-${ageMax ?? "65+"}`);
+  const genders = t.genders as number[] | undefined;
+  if (genders?.length === 1) parts.push(`Gênero: ${genders[0] === 1 ? "Masculino" : "Feminino"}`);
+  else parts.push("Gênero: Todos");
+  const geo = t.geo_locations as Record<string, unknown[]> | undefined;
+  const cities = (geo?.cities as Array<{name: string}> ?? []).map(c => c.name).join(", ");
+  const regions = (geo?.regions as Array<{name: string}> ?? []).map(r => r.name).join(", ");
+  const geoStr = cities || regions;
+  if (geoStr) parts.push(`Localização: ${geoStr}`);
+  const interests = (t.interests as Array<{name: string}> ?? []).slice(0, 5).map(i => i.name);
+  if (interests.length) parts.push(`Interesses: ${interests.join(", ")}`);
+  const behaviors = (t.behaviors as Array<{name: string}> ?? []).slice(0, 3).map(b => b.name);
+  if (behaviors.length) parts.push(`Comportamentos: ${behaviors.join(", ")}`);
+  const audiences = (t.custom_audiences as Array<{name: string}> ?? []).slice(0, 3).map(a => a.name);
+  if (audiences.length) parts.push(`Públicos customizados: ${audiences.join(", ")}`);
+  const excluded = (t.excluded_custom_audiences as Array<{name: string}> ?? []).slice(0, 2).map(a => a.name);
+  if (excluded.length) parts.push(`Excluídos: ${excluded.join(", ")}`);
+  return parts.join(" | ") || "Segmentação ampla";
+}
+
+export async function getCampaignData(
+  adAccountId: string,
+  accessToken: string,
+  dateFrom: string,
+  dateTo: string
+): Promise<CampaignData[]> {
+  const [campaignsRes, insightsRes] = await Promise.allSettled([
+    metaFetch<{ data: Array<{ id: string; name: string; status: string; objective: string; daily_budget?: string; lifetime_budget?: string }> }>(
+      `/${adAccountId}/campaigns?fields=id,name,status,objective,daily_budget,lifetime_budget&access_token=${encodeURIComponent(accessToken)}&limit=200`
+    ),
+    metaFetch<{ data: Array<{ campaign_id: string; campaign_name: string; impressions?: string; clicks?: string; spend?: string; ctr?: string; actions?: Array<{ action_type: string; value: string }> }> }>(
+      `/${adAccountId}/insights?fields=campaign_id,campaign_name,impressions,clicks,spend,ctr,actions&time_range={"since":"${dateFrom}","until":"${dateTo}"}&level=campaign&access_token=${encodeURIComponent(accessToken)}&limit=200`
+    ),
+  ]);
+  const campaigns = campaignsRes.status === "fulfilled" ? campaignsRes.value.data : [];
+  const insights = insightsRes.status === "fulfilled" ? insightsRes.value.data : [];
+  const insightMap = new Map(insights.map(i => [i.campaign_id, i]));
+  return campaigns.map(c => {
+    const ins = insightMap.get(c.id);
+    const leads = parseInt(ins?.actions?.find(a => a.action_type === "lead")?.value ?? "0", 10);
+    const whatsapp = parseInt(ins?.actions?.find(a =>
+      a.action_type === "onsite_conversion.messaging_conversation_started_7d" ||
+      a.action_type === "onsite_conversion.total_messaging_connection"
+    )?.value ?? "0", 10);
+    return {
+      campaign_id: c.id,
+      campaign_name: c.name,
+      objective: c.objective,
+      status: c.status,
+      daily_budget: c.daily_budget ? parseInt(c.daily_budget, 10) / 100 : undefined,
+      lifetime_budget: c.lifetime_budget ? parseInt(c.lifetime_budget, 10) / 100 : undefined,
+      spend: parseFloat(ins?.spend ?? "0"),
+      impressions: parseInt(ins?.impressions ?? "0", 10),
+      clicks: parseInt(ins?.clicks ?? "0", 10),
+      ctr: parseFloat(ins?.ctr ?? "0"),
+      leads,
+      whatsapp_conversations: whatsapp,
+    };
+  });
+}
+
+export async function getAdsetData(
+  adAccountId: string,
+  accessToken: string,
+  dateFrom: string,
+  dateTo: string
+): Promise<AdsetData[]> {
+  const [adsetsRes, insightsRes] = await Promise.allSettled([
+    metaFetch<{ data: Array<{ id: string; name: string; status: string; campaign_id: string; daily_budget?: string; optimization_goal: string; bid_strategy?: string; targeting?: Record<string, unknown> }> }>(
+      `/${adAccountId}/adsets?fields=id,name,status,campaign_id,daily_budget,optimization_goal,bid_strategy,targeting&access_token=${encodeURIComponent(accessToken)}&limit=200`
+    ),
+    metaFetch<{ data: Array<{ adset_id: string; adset_name: string; campaign_id: string; campaign_name: string; impressions?: string; clicks?: string; spend?: string; ctr?: string; actions?: Array<{ action_type: string; value: string }> }> }>(
+      `/${adAccountId}/insights?fields=adset_id,adset_name,campaign_id,campaign_name,impressions,clicks,spend,ctr,actions&time_range={"since":"${dateFrom}","until":"${dateTo}"}&level=adset&access_token=${encodeURIComponent(accessToken)}&limit=200`
+    ),
+  ]);
+  const adsets = adsetsRes.status === "fulfilled" ? adsetsRes.value.data : [];
+  const insights = insightsRes.status === "fulfilled" ? insightsRes.value.data : [];
+  const insightMap = new Map(insights.map(i => [i.adset_id, i]));
+  return adsets.map(a => {
+    const ins = insightMap.get(a.id);
+    const leads = parseInt(ins?.actions?.find(ac => ac.action_type === "lead")?.value ?? "0", 10);
+    const whatsapp = parseInt(ins?.actions?.find(ac =>
+      ac.action_type === "onsite_conversion.messaging_conversation_started_7d" ||
+      ac.action_type === "onsite_conversion.total_messaging_connection"
+    )?.value ?? "0", 10);
+    return {
+      adset_id: a.id,
+      adset_name: a.name,
+      campaign_id: a.campaign_id,
+      campaign_name: ins?.campaign_name ?? "",
+      status: a.status,
+      daily_budget: a.daily_budget ? parseInt(a.daily_budget, 10) / 100 : undefined,
+      optimization_goal: a.optimization_goal,
+      bid_strategy: a.bid_strategy,
+      spend: parseFloat(ins?.spend ?? "0"),
+      impressions: parseInt(ins?.impressions ?? "0", 10),
+      clicks: parseInt(ins?.clicks ?? "0", 10),
+      ctr: parseFloat(ins?.ctr ?? "0"),
+      leads,
+      whatsapp_conversations: whatsapp,
+      targeting_summary: formatTargeting(a.targeting),
+    };
+  });
+}
+
 export async function updateAdsetBudget(
   adsetId: string,
   dailyBudgetCents: number,

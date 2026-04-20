@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getClients } from "@/lib/clients";
-import { saveReport, getReport } from "@/lib/reports-store";
-import { getAdInsights } from "@/lib/meta-api";
+import { saveReport, getReportsByDate } from "@/lib/reports-store";
 import { getGoogleCampaignsWithMetrics } from "@/lib/google-ads-api";
 import { analyzeMetaAds, analyzeGoogleAds } from "@/lib/analysis";
 import type { DailyReport } from "@/lib/reports-store";
@@ -21,12 +20,47 @@ export async function GET(req: NextRequest) {
   const today = new Date().toISOString().split("T")[0];
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
+  // Single query to get all today's reports — avoids 98 individual round-trips
+  let todayReports: DailyReport[] = [];
+  let dbError: string | null = null;
+  try {
+    todayReports = await getReportsByDate(today);
+  } catch (e) {
+    dbError = e instanceof Error ? e.message : String(e);
+  }
+  const existingMap = new Map<string, DailyReport>(todayReports.map(r => [r.client_slug, r]));
+
+  // Sort: no row (0) → meta=null retry (1) → already complete/skipped (2)
+  const sortedClients = [...activeClients].sort((a, b) => {
+    const ra = existingMap.get(a.slug);
+    const rb = existingMap.get(b.slug);
+    const pa = !ra ? 0 : !ra.meta ? 1 : 2;
+    const pb = !rb ? 0 : !rb.meta ? 1 : 2;
+    return pa - pb;
+  });
+
+  // Optional limit for debugging / partial runs
+  const limitParam = req.nextUrl.searchParams.get("limit");
+  const workList = limitParam ? sortedClients.slice(0, parseInt(limitParam)) : sortedClients;
+
+  const debug = {
+    date: today,
+    active_clients: activeClients.length,
+    db_reports_found: todayReports.length,
+    db_error: dbError,
+    priority_counts: {
+      no_row: sortedClients.filter(c => !existingMap.get(c.slug)).length,
+      meta_null: sortedClients.filter(c => { const r = existingMap.get(c.slug); return r && !r.meta; }).length,
+      complete: sortedClients.filter(c => !!existingMap.get(c.slug)?.meta).length,
+    },
+    first_5_clients: workList.slice(0, 5).map(c => ({ slug: c.slug, priority: !existingMap.get(c.slug) ? 0 : !existingMap.get(c.slug)?.meta ? 1 : 2 })),
+  };
+
   const results = [];
 
-  for (const client of activeClients) {
+  for (const client of workList) {
     try {
-      // Skip if today's report already has both meta and google (or meta for non-google clients)
-      const existing = await getReport(client.slug, today).catch(() => null);
+      const existing = existingMap.get(client.slug) ?? undefined;
       const needsMeta = !existing?.meta;
       const needsGoogle = client.google ? !existing?.google : false;
       if (!needsMeta && !needsGoogle) {
@@ -44,26 +78,17 @@ export async function GET(req: NextRequest) {
 
       // ── Meta analysis ──
       if (needsMeta) try {
-        const [analysis, metrics] = await Promise.allSettled([
-          analyzeMetaAds(client, sevenDaysAgo, today),
-          getAdInsights(client.meta.ad_account_id, client.meta.access_token, sevenDaysAgo, today),
-        ]);
-
-        if (analysis.status === "fulfilled") {
-          const m = metrics.status === "fulfilled" ? metrics.value : [];
-          report.meta = {
-            ...analysis.value,
-            spend_7d: m.reduce((s, a) => s + a.spend, 0),
-            leads_7d: m.reduce((s, a) => s + a.leads, 0),
-            avg_ctr: m.length > 0 ? m.reduce((s, a) => s + a.ctr, 0) / m.length : 0,
-          };
-        } else {
-          const reason = analysis.reason instanceof Error ? analysis.reason.message : String(analysis.reason);
-          console.error(`[cron] meta analysis rejected for ${client.slug}:`, reason);
-          results.push({ client: client.slug, status: "meta_error", error: reason, date: today });
-        }
+        const analysis = await analyzeMetaAds(client, sevenDaysAgo, today);
+        report.meta = {
+          ...analysis,
+          spend_7d: analysis.spend_7d ?? 0,
+          leads_7d: analysis.leads_7d ?? 0,
+          avg_ctr: analysis.avg_ctr ?? 0,
+        };
       } catch (e) {
-        console.error(`[cron] meta analysis error for ${client.slug}:`, e);
+        const reason = e instanceof Error ? e.message : String(e);
+        console.error(`[cron] meta analysis error for ${client.slug}:`, reason);
+        results.push({ client: client.slug, status: "meta_error", error: reason, date: today });
       }
 
       // ── Google analysis ──
@@ -101,5 +126,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ processed: results, at: new Date().toISOString() });
+  return NextResponse.json({ processed: results, debug, at: new Date().toISOString() });
 }

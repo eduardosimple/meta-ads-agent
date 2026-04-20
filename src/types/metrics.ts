@@ -78,12 +78,29 @@ export interface Proposal {
   result_message?: string;
 }
 
+export interface ActionItem {
+  prioridade: number;
+  titulo: string;
+  descricao: string;
+  nivel: "campanha" | "conjunto" | "anuncio" | "publico";
+  impacto: "alto" | "medio" | "baixo";
+  esforco: "simples" | "medio" | "complexo";
+}
+
 export interface AnalysisResult {
   client_slug: string;
   analyzed_at: string;
   proposals: Proposal[];
   alerts: Alert[];
   summary_text: string;
+  plano_de_acao?: ActionItem[];
+  // computed aggregates (populated by analyzeMetaAds / analyzeGoogleAds)
+  spend_7d?: number;
+  leads_7d?: number;
+  whatsapp_7d?: number;
+  avg_ctr?: number;
+  conversions_7d?: number;
+  cost_per_conversion?: number;
 }
 
 export interface GoogleAdMetrics {

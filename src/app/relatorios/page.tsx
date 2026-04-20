@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAppContext } from "@/context/AppContext";
 import type { DailyReport } from "@/lib/reports-store";
-import type { Proposal } from "@/types/metrics";
+import type { Proposal, ActionItem } from "@/types/metrics";
 
 function fmt(n: number) {
   return `R$ ${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -338,6 +338,35 @@ function ReportSection({ platform, platformColor, borderColor, analysis, approvi
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Plano de ação */}
+        {analysis.plano_de_acao && analysis.plano_de_acao.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Plano de Implementação</p>
+            <div className="space-y-2">
+              {analysis.plano_de_acao.map((item: ActionItem) => {
+                const impactColor = item.impacto === "alto" ? "bg-red-50 border-red-200" : item.impacto === "medio" ? "bg-yellow-50 border-yellow-200" : "bg-gray-50 border-gray-200";
+                const nivelLabel: Record<string, string> = { campanha: "Campanha", conjunto: "Conjunto", anuncio: "Anúncio", publico: "Público" };
+                const esforcoLabel: Record<string, string> = { simples: "Simples", medio: "Médio", complexo: "Complexo" };
+                return (
+                  <div key={item.prioridade} className={`rounded-xl border px-4 py-3 ${impactColor}`}>
+                    <div className="flex items-start gap-3">
+                      <span className="shrink-0 w-6 h-6 rounded-full bg-white border border-gray-200 flex items-center justify-center text-xs font-bold text-gray-600">{item.prioridade}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-semibold text-gray-800">{item.titulo}</span>
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-white border border-gray-200 text-gray-500">{nivelLabel[item.nivel] ?? item.nivel}</span>
+                          <span className="text-xs text-gray-400">{esforcoLabel[item.esforco] ?? item.esforco}</span>
+                        </div>
+                        <p className="text-xs text-gray-600 mt-1 leading-relaxed">{item.descricao}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
