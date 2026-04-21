@@ -126,5 +126,35 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // ── WhatsApp notification ──
+  try {
+    const freshReports = await getReportsByDate(today);
+    const totalSpend = freshReports.reduce((s, r) => s + (r.meta?.spend_7d ?? 0) + (r.google?.spend_7d ?? 0), 0);
+    const needsCreative = freshReports.reduce((n, r) => {
+      const meta = (r.meta?.proposals ?? []).filter(p => (p.verdict === "pausar" || p.verdict === "ajustar") && p.status === "pending").length;
+      const google = (r.google?.proposals ?? []).filter(p => (p.verdict === "pausar" || p.verdict === "ajustar") && p.status === "pending").length;
+      return n + meta + google;
+    }, 0);
+
+    const [d, m, y] = today.split("-");
+    const reportUrl = `${process.env.META_ADS_AGENT_URL ?? "https://meta-ads-agent-ten.vercel.app"}/daily-report/${today}?key=${process.env.REPORT_VIEW_SECRET}`;
+    const msg = `Relatorio diario ${d}/${m}/${y}\n\n${freshReports.length} clientes analisados\n${needsCreative} criativos para substituir\nGasto 7d: R$ ${Math.round(totalSpend).toLocaleString("pt-BR")}\n\nVer relatorio:\n${reportUrl}`;
+
+    const evoUrl = process.env.EVOLUTION_API_URL;
+    const evoKey = process.env.EVOLUTION_API_KEY;
+    const evoInstance = process.env.EVOLUTION_INSTANCE;
+    const waNumber = process.env.NOTIFY_WHATSAPP_NUMBER;
+
+    if (evoUrl && evoKey && evoInstance && waNumber) {
+      await fetch(`${evoUrl}/message/sendText/${evoInstance}`, {
+        method: "POST",
+        headers: { "apikey": evoKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ number: waNumber, text: msg }),
+      });
+    }
+  } catch (e) {
+    console.error("[cron] whatsapp notification error:", e);
+  }
+
   return NextResponse.json({ processed: results, debug, at: new Date().toISOString() });
 }
