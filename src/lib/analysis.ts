@@ -5,6 +5,18 @@ import type { Client } from "@/types/client";
 import type { AdMetrics, GoogleAdMetrics, AnalysisResult, Proposal, Alert, ActionItem } from "@/types/metrics";
 import { randomUUID } from "crypto";
 
+// Score composto (0-100) — quanto MAIOR melhor
+function calcScore(ad: AdMetrics): number {
+  // CPL normalizado (inverted — menor CPL = mais pontos)
+  const cplScore = ad.cpl > 0 ? Math.max(0, 100 - (ad.cpl / 50) * 40) : 50;
+  // CTR (0.5% = 20pts, 2% = 80pts)
+  const ctrScore = Math.min(100, (ad.ctr / 2) * 80);
+  // Frequência (< 3 = bom, > 5 = ruim)
+  const freqScore = ad.frequency > 0 ? Math.max(0, 100 - ((ad.frequency - 3) / 3) * 60) : 60;
+  // Peso: 50% CPL, 30% CTR, 20% frequência
+  return Math.round(cplScore * 0.5 + ctrScore * 0.3 + freqScore * 0.2);
+}
+
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 export async function analyzeMetaAds(client: Client, dateFrom: string, dateTo: string): Promise<AnalysisResult> {
@@ -173,10 +185,48 @@ IMPORTANTE:
   const convSummary = totalLeads > 0 ? `Leads: ${totalLeads}.` : totalWhatsapp > 0 ? `Conversas WhatsApp: ${totalWhatsapp}.` : "Nenhuma conversão registrada.";
   const defaultSummary = `${campaignData.length} campanha(s), ${adsetData.length} conjunto(s) e ${adMetrics.length} anúncio(s) nos últimos 7 dias (top ${topCampaigns.length}/${topAdsets.length}/${topAds.length} por gasto analisados). Gasto total: R$ ${totalSpend.toFixed(2)}. CTR médio: ${avgCtr.toFixed(2)}%. ${convSummary}`;
 
+  // Build proposals with score and escalar enrichment
+  const adMetricsMap = new Map<string, AdMetrics>(adMetrics.map(m => [m.ad_id, m]));
+
+  const proposals: Proposal[] = (parsed.proposals ?? []).map(p => {
+    const adData = adMetricsMap.get(p.ad_id);
+    const score = adData ? calcScore(adData) : 50;
+
+    let acao_sugerida = p.acao_sugerida;
+    let budget_sugerido_cents: number | undefined;
+
+    if (p.verdict === "escalar" && adData) {
+      const CPL_THRESHOLD = 80; // reference threshold in BRL
+      const cplGoodThreshold = CPL_THRESHOLD * 0.6;
+      if (adData.cpl > 0 && adData.cpl < cplGoodThreshold) {
+        // budget_estimado = (spend / 7) * 1.5 — safety margin estimate
+        const budgetEstimadoDiario = (adData.spend / 7) * 1.5;
+        const budgetAtualCents = Math.round(budgetEstimadoDiario * 100);
+        const budgetSugeridoCents = Math.round(budgetAtualCents * 1.2);
+        budget_sugerido_cents = budgetSugeridoCents;
+        const pctBelow = Math.round((1 - adData.cpl / CPL_THRESHOLD) * 100);
+        acao_sugerida = `Escalar: aumentar budget do conjunto de R$${(budgetAtualCents / 100).toFixed(2)} para R$${(budgetSugeridoCents / 100).toFixed(2)} (+20%). CPL atual R$${adData.cpl.toFixed(2)} está ${pctBelow}% abaixo do limite.`;
+      }
+    }
+
+    return {
+      ...p,
+      id: randomUUID(),
+      status: "pending" as const,
+      created_at: now_iso,
+      score,
+      acao_sugerida,
+      ...(budget_sugerido_cents !== undefined ? { budget_sugerido_cents } : {}),
+    };
+  });
+
+  // Sort proposals by score DESC (best performing first)
+  proposals.sort((a, b) => (b.score ?? 50) - (a.score ?? 50));
+
   return {
     client_slug: client.slug,
     analyzed_at: now_iso,
-    proposals: (parsed.proposals ?? []).map(p => ({ ...p, id: randomUUID(), status: "pending" as const, created_at: now_iso })),
+    proposals,
     alerts: (parsed.alerts ?? []).map(a => ({ ...a, id: randomUUID() })),
     summary_text: parsed.summary_text || defaultSummary,
     plano_de_acao: parsed.plano_de_acao ?? [],

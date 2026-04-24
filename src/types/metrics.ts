@@ -81,6 +81,8 @@ export interface Proposal {
     versao_b: { headline: string; texto: string; cta: string };
     image_base64?: string;
   };
+  score?: number;
+  budget_sugerido_cents?: number;
 }
 
 export interface ActionItem {
