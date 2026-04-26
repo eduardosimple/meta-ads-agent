@@ -5,6 +5,8 @@ export interface ClientMeta {
   app_secret: string;
   page_id: string;
   page_name: string;
+  whatsapp_number?: string;
+  instagram_actor_id?: string;
 }
 
 export interface ClientGoogle {
@@ -23,6 +25,7 @@ export interface ClientContexto {
   publico_alvo: string;
   orcamento_diario_padrao: number;
   objetivo_padrao: string;
+  orcamento_mensal_cents?: number; // se definido, limita escalonamentos e informa Claude
 }
 
 export interface Client {

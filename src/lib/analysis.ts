@@ -1,9 +1,34 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { getAdInsights, getCampaignData, getAdsetData } from "@/lib/meta-api";
+import { getAdInsights, getCampaignData, getAdsetData, getCustomAudiences } from "@/lib/meta-api";
 import { getGoogleAdGroupInsights, normalizeCustomerId } from "@/lib/google-ads-api";
 import type { Client } from "@/types/client";
 import type { AdMetrics, GoogleAdMetrics, AnalysisResult, Proposal, Alert, ActionItem } from "@/types/metrics";
+import type { CustomAudience } from "@/lib/meta-api";
 import { randomUUID } from "crypto";
+
+function compactTargeting(t: Record<string, unknown>, knownAudiences: CustomAudience[]): string {
+  const parts: string[] = [];
+  const ageMin = t.age_min as number | undefined;
+  const ageMax = t.age_max as number | undefined;
+  if (ageMin || ageMax) parts.push(`${ageMin ?? 18}-${ageMax ?? "65+"}anos`);
+  const genders = t.genders as number[] | undefined;
+  if (genders?.length === 1) parts.push(genders[0] === 1 ? "M" : "F");
+  const ca = (t.custom_audiences as Array<{ id: string; name?: string }> ?? []);
+  if (ca.length) {
+    const names = ca.map(a => {
+      const found = knownAudiences.find(k => k.id === a.id);
+      return found ? found.name : a.name ?? a.id;
+    });
+    parts.push(`CA:[${names.join(",")}]`);
+  }
+  const exc = (t.excluded_custom_audiences as Array<{ id: string; name?: string }> ?? []);
+  if (exc.length) parts.push(`EXC:[${exc.map(a => a.name ?? a.id).join(",")}]`);
+  const interests = (t.interests as Array<{ name: string }> ?? []).slice(0, 3).map(i => i.name);
+  if (interests.length) parts.push(`INT:${interests.join("&")}`);
+  const tgtOpt = t.targeting_optimization as string | undefined;
+  if (tgtOpt) parts.push(`ADV+:${tgtOpt}`);
+  return parts.join(" | ") || "amplo";
+}
 
 // Score composto (0-100) — quanto MAIOR melhor
 function calcScore(ad: AdMetrics): number {
@@ -29,109 +54,96 @@ export async function analyzeMetaAds(client: Client, dateFrom: string, dateTo: s
     plano_de_acao: [],
   });
 
-  // Fetch all three levels in parallel
-  const [adMetricsRes, campaignDataRes, adsetDataRes] = await Promise.allSettled([
+  // Fetch all levels + custom audiences in parallel
+  const [adMetricsRes, campaignDataRes, adsetDataRes, customAudiencesRes] = await Promise.allSettled([
     getAdInsights(client.meta.ad_account_id, client.meta.access_token, dateFrom, dateTo),
     getCampaignData(client.meta.ad_account_id, client.meta.access_token, dateFrom, dateTo),
     getAdsetData(client.meta.ad_account_id, client.meta.access_token, dateFrom, dateTo),
+    getCustomAudiences(client.meta.ad_account_id, client.meta.access_token),
   ]);
 
   const adMetrics: AdMetrics[] = adMetricsRes.status === "fulfilled" ? adMetricsRes.value : [];
   const campaignData = campaignDataRes.status === "fulfilled" ? campaignDataRes.value : [];
   const adsetData = adsetDataRes.status === "fulfilled" ? adsetDataRes.value : [];
+  const customAudiences = customAudiencesRes.status === "fulfilled" ? customAudiencesRes.value : [];
 
   if (adMetrics.length === 0 && campaignData.length === 0) {
     return empty("Não há dados de anúncios ativos nos últimos 7 dias.");
   }
 
-  // Limit to top N by spend to control token usage
-  const topCampaigns = [...campaignData].sort((a, b) => b.spend - a.spend).slice(0, 15);
-  const topAdsets = [...adsetData].sort((a, b) => b.spend - a.spend).slice(0, 20);
-  const topAds = [...adMetrics].sort((a, b) => b.spend - a.spend).slice(0, 30);
+  // Fast path: skip Claude if no meaningful spend
+  const totalSpendCheck = adMetrics.reduce((s, m) => s + m.spend, 0);
+  if (totalSpendCheck < 1 && adMetrics.length === 0) {
+    return empty("Nenhum gasto registrado nos últimos 7 dias.");
+  }
 
-  // === CAMPAIGN LEVEL ===
+  // Top N by spend — compact limits to control token cost
+  const topCampaigns = [...campaignData].sort((a, b) => b.spend - a.spend).slice(0, 8);
+  const topAdsets = [...adsetData].sort((a, b) => b.spend - a.spend).slice(0, 12);
+  const topAds = [...adMetrics].sort((a, b) => b.spend - a.spend).slice(0, 15);
+
+  // Compact format — removes targeting_summary, alcance, days_running, post_engagements
   const campaignText = topCampaigns.length > 0
-    ? "=== CAMPANHAS ===\n" + topCampaigns.map(c => {
-        const budget = c.daily_budget ? `R$ ${c.daily_budget.toFixed(2)}/dia` : c.lifetime_budget ? `R$ ${c.lifetime_budget.toFixed(2)} vitalício` : "sem orçamento definido";
-        const results: string[] = [];
-        if (c.leads > 0) results.push(`Leads: ${c.leads}`);
-        if (c.whatsapp_conversations > 0) results.push(`Conv. WhatsApp: ${c.whatsapp_conversations}`);
-        return `Campanha: "${c.campaign_name}" (ID: ${c.campaign_id})
-- Objetivo: ${c.objective} | Status: ${c.status} | Orçamento: ${budget}
-- Gasto 7d: R$ ${c.spend.toFixed(2)} | Impressões: ${c.impressions} | CTR: ${c.ctr.toFixed(2)}%
-- Resultados: ${results.length > 0 ? results.join(" | ") : "nenhuma conversão registrada"}`;
-      }).join("\n---\n")
+    ? "CAMPANHAS\n" + topCampaigns.map(c => {
+        const bud = c.daily_budget ? `R$${c.daily_budget.toFixed(0)}/d` : c.lifetime_budget ? `R$${c.lifetime_budget.toFixed(0)}vit` : "s/orç";
+        const conv = [c.leads > 0 ? `L:${c.leads}` : "", c.whatsapp_conversations > 0 ? `WA:${c.whatsapp_conversations}` : ""].filter(Boolean).join(" ") || "0conv";
+        return `[${c.campaign_id}] "${c.campaign_name}" ${c.status} ${bud} obj:${c.objective}\n  G:R$${c.spend.toFixed(0)} imp:${c.impressions} CTR:${c.ctr.toFixed(1)}% ${conv}`;
+      }).join("\n")
     : "";
 
-  // === ADSET LEVEL ===
   const adsetText = topAdsets.length > 0
-    ? "\n\n=== CONJUNTOS DE ANÚNCIOS ===\n" + topAdsets.map(a => {
-        const budget = a.daily_budget ? `R$ ${a.daily_budget.toFixed(2)}/dia` : "orçamento da campanha";
-        const results: string[] = [];
-        if (a.leads > 0) results.push(`Leads: ${a.leads}`);
-        if (a.whatsapp_conversations > 0) results.push(`Conv. WhatsApp: ${a.whatsapp_conversations}`);
-        return `Conjunto: "${a.adset_name}" (ID: ${a.adset_id})
-- Campanha: "${a.campaign_name}" | Status: ${a.status} | Orçamento: ${budget}
-- Otimização: ${a.optimization_goal}${a.bid_strategy ? ` | Lance: ${a.bid_strategy}` : ""}
-- Segmentação: ${a.targeting_summary}
-- Gasto 7d: R$ ${a.spend.toFixed(2)} | Impressões: ${a.impressions} | CTR: ${a.ctr.toFixed(2)}%
-- Resultados: ${results.length > 0 ? results.join(" | ") : "nenhuma conversão registrada"}`;
-      }).join("\n---\n")
+    ? "\nCONJUNTOS\n" + topAdsets.map(a => {
+        const bud = a.daily_budget ? `R$${a.daily_budget.toFixed(0)}/d` : "camp";
+        const conv = [a.leads > 0 ? `L:${a.leads}` : "", a.whatsapp_conversations > 0 ? `WA:${a.whatsapp_conversations}` : ""].filter(Boolean).join(" ") || "0conv";
+        // Compact targeting: only key fields to avoid blowing up prompt size
+        const tgtCompact = a.targeting_raw ? compactTargeting(a.targeting_raw, customAudiences) : a.targeting_summary;
+        return `[${a.adset_id}] "${a.adset_name}" camp:[${a.campaign_id}] ${a.status} ${bud} ${a.optimization_goal}${a.bid_strategy ? ` ${a.bid_strategy}` : ""}\n  G:R$${a.spend.toFixed(0)} imp:${a.impressions} CTR:${a.ctr.toFixed(1)}% ${conv}\n  SEG:${tgtCompact}`;
+      }).join("\n")
     : "";
 
-  // === AD LEVEL ===
   const adText = topAds.length > 0
-    ? "\n\n=== ANÚNCIOS ===\n" + topAds.map(m => {
-        const conversions: string[] = [];
-        if (m.leads > 0) conversions.push(`Leads: ${m.leads} | CPL: R$ ${m.cpl.toFixed(2)}`);
-        if (m.whatsapp_conversations > 0) conversions.push(`Conv. WhatsApp: ${m.whatsapp_conversations} | CPConversa: R$ ${(m.spend / m.whatsapp_conversations).toFixed(2)}`);
-        if (m.post_engagements > 0) conversions.push(`Engajamentos: ${m.post_engagements}`);
-        const convLine = conversions.length > 0 ? conversions.join(" | ") : "nenhuma";
-        return `Anúncio: "${m.ad_name}" (ID: ${m.ad_id})
-- Conjunto: ${m.adset_name} | Campanha: ${m.campaign_name}
-- Status: ${m.status} | ${m.days_running} dias no ar
-- Gasto: R$ ${m.spend.toFixed(2)} | Impressões: ${m.impressions} | Alcance: ${m.reach}
-- CTR: ${m.ctr.toFixed(2)}% | CPC: R$ ${m.cpc.toFixed(2)} | CPM: R$ ${m.cpm.toFixed(2)} | Frequência: ${m.frequency.toFixed(1)}
-- Conversões: ${convLine}`;
-      }).join("\n---\n")
+    ? "\nANÚNCIOS\n" + topAds.map(m => {
+        const conv = [
+          m.leads > 0 ? `L:${m.leads} CPL:R$${m.cpl.toFixed(0)}` : "",
+          m.whatsapp_conversations > 0 ? `WA:${m.whatsapp_conversations} CPconv:R$${(m.spend / m.whatsapp_conversations).toFixed(0)}` : "",
+        ].filter(Boolean).join(" ") || "0conv";
+        return `[${m.ad_id}] "${m.ad_name}" conj:[${m.adset_id}] ${m.status}\n  G:R$${m.spend.toFixed(0)} imp:${m.impressions} CTR:${m.ctr.toFixed(1)}% CPC:R$${m.cpc.toFixed(1)} CPM:R$${m.cpm.toFixed(0)} Freq:${m.frequency.toFixed(1)} ${conv}`;
+      }).join("\n")
     : "";
 
-  const metricsText = campaignText + adsetText + adText;
+  const metricsText = [campaignText, adsetText, adText].filter(Boolean).join("\n");
 
-  const systemPrompt = `Você é um especialista sênior em Meta Ads para o segmento ${client.contexto.segmento} em ${client.contexto.cidade}, ${client.contexto.estado}.
+  const orcamentoMensal = client.contexto.orcamento_mensal_cents
+    ? `\nOrçamento mensal do cliente: R$${(client.contexto.orcamento_mensal_cents / 100).toFixed(0)}. Ao sugerir escalonamento, calcule new_budget_cents de forma que o gasto projetado no mês não ultrapasse esse limite. Nunca sugira escalonamento que resulte em gasto mensal projetado (novo_daily_budget × dias_restantes + gasto_atual) acima desse valor.`
+    : "";
 
-Faça uma análise COMPLETA e PROFUNDA em três níveis:
-1. CAMPANHAS: objetivos, estrutura, orçamentos, resultados agregados
-2. CONJUNTOS DE ANÚNCIOS: segmentação de público, sobreposição, bid strategy, otimização
-3. ANÚNCIOS: performance criativa, CTR, CPM, frequência, criatividade saturada
+  const customAudienceText = customAudiences.length > 0
+    ? `\nPÚBLICOS DISPONÍVEIS (use IDs em create_adset):\n${customAudiences.slice(0, 15).map(a => `[${a.id}] ${a.name}`).join("\n")}`
+    : "";
 
-Benchmarks Meta Ads (referência):
-- CPM: R$ 5–15 (⚠ acima R$ 20)
-- CPC: R$ 0,50–3 (⚠ acima R$ 5)
-- CTR: 1%–2% (⚠ abaixo 0,8%)
-- Frequência: 1,5–2,5 (⚠ acima 3,5)
-- CPL: R$ 30–80 (⚠ acima R$ 100)
-- CPConversa WhatsApp: R$ 5–25 (⚠ acima R$ 40)
+  const systemPrompt = `Especialista Meta Ads (metodologia 12345 Pedro Sobral) — segmento: ${client.contexto.segmento}, praça: ${client.contexto.cidade}/${client.contexto.estado}.${orcamentoMensal}
 
-Regras de decisão:
-- Aguarde 4-5 dias antes de pausar anúncios com pouco gasto
-- Não escale sem dados suficientes (mín. R$ 50 de gasto)
-- Considere sobreposição de público entre conjuntos
+METODOLOGIA 12345 — siga SEMPRE essa ordem de otimização:
+1.ORÇAMENTOS: resultado bom→escalar 20-30% | ruim→pausar. Escalar só com R$50+ gasto e dentro do orçamento mensal.
+2.PÚBLICOS: CPM alto→ampliar público (criar novo conjunto) | saturado(freq>3,5 ou alcance<500)→expandir janela/novo público | muitos cliques sem conversão→restringir. Sempre criar novo conjunto ao trocar público — nunca modificar o existente.
+3.CRIATIVOS: CTR<0,8%→novo gancho/copy | frequência>3,5→variação visual | hook rate baixo→nova abertura. Ao pausar um anúncio, sempre subir um novo.
+4.ESTRUTURA: revisar agrupamento por aquecimento (Q/F) e posicionamento a cada 7-14-21 dias.
+5.DESTINO: se CTR ok mas CPL alto → problema na LP ou atendimento (ajuste_tipo:"configuracao").
 
-Vereditos por anúncio: escalar | manter | testar_variacao | ajustar | pausar
-
-Actions:
-- verdict=pausar → {"type": "pause_ad", "ad_id": "ID"}
-- verdict=escalar → {"type": "scale_budget", "adset_id": "ID", "new_budget_cents": VALOR}
-- demais → {"type": "none"}
-
-IMPORTANTE:
-- summary_text: OBRIGATÓRIO, nunca vazio. Resumo executivo de 3-5 frases com visão geral da conta: gasto total, CTR médio, leads/conversas, pontos críticos e destaques.
-- plano_de_acao: Liste as 5-10 ações mais importantes, priorizadas por impacto. Inclua ações em TODOS os níveis (campanha, conjunto, anúncio, público). Seja específico: mencione nomes de campanhas/conjuntos e o que exatamente deve ser feito.`;
+Benchmarks: CPM R$5-15(⚠>20) | CPC R$0,5-3(⚠>5) | CTR 1-2%(⚠<0,8%) | Freq 1,5-2,5(⚠>3,5) | CPL R$30-80(⚠>100) | CPconv WA R$5-25(⚠>40)
+Período mínimo: pausar só após 4-5 dias E R$30+ gasto. Escalar só com R$50+ gasto.
+Vereditos: escalar|manter|testar_variacao|ajustar|pausar
+Actions: pausar→{type:"pause_ad",ad_id} | escalar→{type:"scale_budget",adset_id,new_budget_cents} | ajustar público→{type:"create_adset",campaign_id,adset_name,targeting,optimization_goal,bid_strategy?,daily_budget_cents?,targeting_summary_new} | demais→{type:"none"}
+NOMENCLATURA grupos de anúncio: "NN – [POSICIONAMENTO] [GÊNERO/IDADE se específico] – Nome do público" (NN=próximo sequencial, ex:"01 – [AUTO] – Envolvimento IG/FB – 365D").
+ajuste_tipo: OBRIGATÓRIO para ajustar — "criativo"(copy/gancho/visual) | "publico"(segmentação/janela/saturação) | "lance"(CPM/CPC) | "configuracao"(objetivo/LP/destino).
+copy_sugerida: SOMENTE quando ajuste_tipo="criativo" ou verdict="testar_variacao". versao_a=criativo corrigido, versao_b=variação diferente. headline≤40ch, texto≤125ch, cta curto.
+IMPORTANTE create_adset: targeting=objeto JSON completo válido Meta API. Use IDs dos públicos disponíveis. Conjunto criado PAUSADO.
+summary_text: OBRIGATÓRIO — 2-3 frases: gasto total, CTR médio, leads/WA, pontos críticos.
+plano_de_acao: máx 5 ações priorizadas, seguindo ordem 12345, específicas (cite IDs).`;
 
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
-    max_tokens: 8192,
+    max_tokens: 4096,
     system: systemPrompt,
     tools: [{
       name: "retornar_analise",
@@ -144,7 +156,25 @@ IMPORTANTE:
             campaign_name: { type: "string" }, verdict: { type: "string", enum: ["escalar","manter","testar_variacao","ajustar","pausar"] },
             titulo: { type: "string" }, diagnostico: { type: "string" },
             metricas_problema: { type: "array", items: { type: "string" } },
-            acao_sugerida: { type: "string" }, action: { type: "object" },
+            acao_sugerida: { type: "string" },
+            action: { type: "object", properties: {
+              type: { type: "string", enum: ["pause_ad","scale_budget","create_adset","none"] },
+              ad_id: { type: "string" },
+              adset_id: { type: "string" },
+              new_budget_cents: { type: "number" },
+              campaign_id: { type: "string" },
+              adset_name: { type: "string" },
+              targeting: { type: "object" },
+              optimization_goal: { type: "string" },
+              bid_strategy: { type: "string" },
+              daily_budget_cents: { type: "number" },
+              targeting_summary_new: { type: "string" },
+            }, required: ["type"] },
+            ajuste_tipo: { type: "string", enum: ["criativo","publico","lance","configuracao"] },
+            copy_sugerida: { type: "object", properties: {
+              versao_a: { type: "object", properties: { headline: { type: "string" }, texto: { type: "string" }, cta: { type: "string" } }, required: ["headline","texto","cta"] },
+              versao_b: { type: "object", properties: { headline: { type: "string" }, texto: { type: "string" }, cta: { type: "string" } }, required: ["headline","texto","cta"] },
+            }, required: ["versao_a","versao_b"] },
           }, required: ["ad_id","ad_name","adset_name","campaign_name","verdict","titulo","diagnostico","metricas_problema","acao_sugerida","action"] } },
           alerts: { type: "array", items: { type: "object", properties: {
             level: { type: "string", enum: ["info","warning","critical"] },
@@ -164,7 +194,7 @@ IMPORTANTE:
       },
     }],
     tool_choice: { type: "tool", name: "retornar_analise" },
-    messages: [{ role: "user", content: `Analise as campanhas Meta Ads dos últimos 7 dias e gere uma análise completa com plano de ação:\n\n${metricsText}` }],
+    messages: [{ role: "user", content: `Analise as campanhas Meta Ads dos últimos 7 dias:\n\n${metricsText}${customAudienceText}` }],
   });
 
   const toolUse = response.content.find(b => b.type === "tool_use");
@@ -264,33 +294,19 @@ export async function analyzeGoogleAds(client: Client, dateFrom: string, dateTo:
 
   if (adGroups.length === 0) return empty("Nenhum grupo de anúncios ativo encontrado nos últimos 7 dias.");
 
-  const metricsText = adGroups.map(ag => `
-Grupo de Anúncios: "${ag.ad_group_name}" (ID: ${ag.ad_group_id})
-- Campanha: "${ag.campaign_name}" (ID: ${ag.campaign_id})
-- Status: ${ag.status}
-- Período: últimos 7 dias
-- Gasto: R$ ${ag.spend.toFixed(2)}
-- Impressões: ${ag.impressions} | Cliques: ${ag.clicks}
-- CTR: ${ag.ctr.toFixed(2)}% | CPC: R$ ${ag.cpc.toFixed(2)}
-- Conversões: ${ag.conversions.toFixed(1)}${ag.cost_per_conversion > 0 ? ` | Custo/Conversão: R$ ${ag.cost_per_conversion.toFixed(2)}` : ""}
-`).join("\n---\n");
+  const metricsText = adGroups.map(ag =>
+    `[${ag.ad_group_id}] "${ag.ad_group_name}" camp:[${ag.campaign_id}] "${ag.campaign_name}" ${ag.status}\n  G:R$${ag.spend.toFixed(0)} imp:${ag.impressions} CTR:${ag.ctr.toFixed(1)}% CPC:R$${ag.cpc.toFixed(1)} conv:${ag.conversions.toFixed(0)}${ag.cost_per_conversion > 0 ? ` CPconv:R$${ag.cost_per_conversion.toFixed(0)}` : ""}`
+  ).join("\n");
 
-  const systemPrompt = `Você é um especialista em análise de campanhas Google Ads para o segmento ${client.contexto.segmento} em ${client.contexto.cidade}, ${client.contexto.estado}.
-
-Benchmarks de referência para Google Ads:
-- CPC: R$ 0,80 a R$ 4 (alerta acima de R$ 8)
-- CTR Search: 2% a 6% (alerta abaixo de 1,5%)
-- Custo/Conversão: R$ 50 a R$ 150 (alerta acima de R$ 200)
-- Taxa de conversão: 2% a 5% (alerta abaixo de 1%)
-
-Vereditos possíveis: escalar | manter | testar_variacao | ajustar | pausar
-action_type: "pause_ad_group" quando verdict=pausar, "pause_campaign" apenas se toda campanha deve parar, "none" para os demais
-
-IMPORTANTE: O campo summary_text é OBRIGATÓRIO e nunca pode ficar vazio. Sempre escreva um resumo executivo de 2-4 frases descrevendo o estado atual das campanhas, mesmo que tudo esteja dentro dos benchmarks. Mencione gasto total, conversões, CPC médio e principais pontos de atenção ou destaques.`;
+  const systemPrompt = `Especialista Google Ads — segmento: ${client.contexto.segmento}, praça: ${client.contexto.cidade}/${client.contexto.estado}.
+Benchmarks: CPC R$0,8-4(⚠>8) | CTR 2-6%(⚠<1,5%) | CPconv R$50-150(⚠>200) | TxConv 2-5%(⚠<1%)
+Vereditos: escalar|manter|testar_variacao|ajustar|pausar
+action_type: pause_ad_group(pausar)|pause_campaign(pausar toda camp)|none
+summary_text: OBRIGATÓRIO — 2-3 frases: gasto, conversões, CPC médio, pontos críticos.`;
 
   const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 4096,
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 2048,
     system: systemPrompt,
     tools: [{
       name: "retornar_analise",
@@ -317,7 +333,7 @@ IMPORTANTE: O campo summary_text é OBRIGATÓRIO e nunca pode ficar vazio. Sempr
       },
     }],
     tool_choice: { type: "tool", name: "retornar_analise" },
-    messages: [{ role: "user", content: `Analise os seguintes grupos de anúncios do Google Ads dos últimos 7 dias e gere propostas de otimização:\n\n${metricsText}` }],
+    messages: [{ role: "user", content: `Google Ads últimos 7 dias:\n\n${metricsText}` }],
   });
 
   const toolUse = response.content.find(b => b.type === "tool_use");

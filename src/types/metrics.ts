@@ -55,10 +55,14 @@ export type ProposalAction =
   | { type: "pause_ad"; ad_id: string }
   | { type: "pause_adset"; adset_id: string }
   | { type: "scale_budget"; adset_id: string; new_budget_cents: number }
+  | { type: "update_adset_targeting"; adset_id: string; targeting: Record<string, unknown>; targeting_summary_new: string }
+  | { type: "create_adset"; campaign_id: string; adset_name: string; targeting: Record<string, unknown>; optimization_goal: string; bid_strategy?: string; daily_budget_cents?: number; targeting_summary_new: string }
   | { type: "pause_google_ad_group"; ad_group_id: string; customer_id: string }
   | { type: "pause_google_campaign"; campaign_id: string; customer_id: string }
   | { type: "scale_google_campaign"; campaign_id: string; customer_id: string }
   | { type: "none" };
+
+export type AjusteTipo = "criativo" | "publico" | "lance" | "configuracao";
 
 export interface Proposal {
   id: string;
@@ -67,6 +71,7 @@ export interface Proposal {
   adset_name: string;
   campaign_name: string;
   verdict: ProposalVerdict;
+  ajuste_tipo?: AjusteTipo;
   titulo: string;
   diagnostico: string;
   metricas_problema: string[];

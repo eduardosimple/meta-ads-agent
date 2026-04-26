@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getClients } from "@/lib/clients";
+import { getReportsByDate } from "@/lib/reports-store";
 import type { DailyReport } from "@/lib/reports-store";
 
 export const maxDuration = 60;
@@ -23,7 +24,6 @@ export async function GET(req: NextRequest) {
   const month = now.getUTCMonth(); // 0-indexed
   const firstDayOfMonth = new Date(Date.UTC(year, month, 1)).toISOString().split("T")[0];
   const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-  const dayOfMonth = now.getUTCDate();
 
   const sb = getSupabase();
   if (!sb) {
@@ -91,21 +91,38 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  if (alertEntries.length === 0) {
-    return NextResponse.json({ message: "Nenhum alerta orçamentário identificado.", day: dayOfMonth, daysInMonth });
-  }
-
-  // Build WhatsApp message
+  // Build WhatsApp message — always includes daily summary + optional budget alerts
   const dd = String(now.getUTCDate()).padStart(2, "0");
   const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
-  const lines = alertEntries.map(a => {
-    const projecaoFmt = `R$${Math.round(a.projecao).toLocaleString("pt-BR")}`;
-    const budgetFmt = `R$${Math.round(a.budget).toLocaleString("pt-BR")}`;
-    const label = a.tipo === "estouro" ? "estouro estimado" : "subentrega estimada";
-    return `${a.nome} — Projecao: ${projecaoFmt} / Meta: ${budgetFmt} (${label})`;
-  });
+  const yyyy = String(now.getUTCFullYear());
 
-  const msg = `Alerta orcamentario ${dd}/${mm}\n\n${lines.join("\n")}`;
+  // Daily analysis summary from today's reports
+  const today = `${yyyy}-${mm}-${dd}`;
+  let todayReports: DailyReport[] = [];
+  try {
+    todayReports = await getReportsByDate(today);
+  } catch (_) { /* non-blocking */ }
+
+  const totalSpend = todayReports.reduce((s, r) => s + (r.meta?.spend_7d ?? 0) + (r.google?.spend_7d ?? 0), 0);
+  const needsCreative = todayReports.reduce((n, r) => {
+    const meta = (r.meta?.proposals ?? []).filter(p => (p.verdict === "pausar" || p.verdict === "ajustar") && p.status === "pending").length;
+    const google = (r.google?.proposals ?? []).filter(p => (p.verdict === "pausar" || p.verdict === "ajustar") && p.status === "pending").length;
+    return n + meta + google;
+  }, 0);
+
+  const reportUrl = `${process.env.META_ADS_AGENT_URL ?? "https://meta-ads-agent-ten.vercel.app"}/daily-report/${today}?key=${process.env.REPORT_VIEW_SECRET ?? ""}`;
+
+  let msg = `Relatorio diario ${dd}/${mm}/${yyyy}\n\n${todayReports.length} clientes analisados\n${needsCreative} criativos para substituir\nGasto 7d: R$${Math.round(totalSpend).toLocaleString("pt-BR")}\n\nVer relatorio:\n${reportUrl}`;
+
+  if (alertEntries.length > 0) {
+    const alertLines = alertEntries.map(a => {
+      const projecaoFmt = `R$${Math.round(a.projecao).toLocaleString("pt-BR")}`;
+      const budgetFmt = `R$${Math.round(a.budget).toLocaleString("pt-BR")}`;
+      const label = a.tipo === "estouro" ? "estouro estimado" : "subentrega estimada";
+      return `${a.nome} — Projecao: ${projecaoFmt} / Meta: ${budgetFmt} (${label})`;
+    });
+    msg += `\n\nAlertas orcamentarios:\n${alertLines.join("\n")}`;
+  }
 
   // Send via Evolution API
   const evoUrl = process.env.EVOLUTION_API_URL ?? "https://apiwp.mktsimple.com.br";

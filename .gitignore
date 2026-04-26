@@ -24,3 +24,9 @@ dist/
 build/
 .vercel
 .env*.local
+.env.fresh
+.env.vercel
+check_db.ts
+list_clients.ts
+research_scala.ts
+.claude/settings.json

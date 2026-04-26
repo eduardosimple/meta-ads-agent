@@ -212,6 +212,14 @@ export interface AdsetData {
   leads: number;
   whatsapp_conversations: number;
   targeting_summary: string;
+  targeting_raw?: Record<string, unknown>;
+}
+
+export interface CustomAudience {
+  id: string;
+  name: string;
+  subtype: string;
+  approximate_count_lower_bound?: number;
 }
 
 function formatTargeting(t: Record<string, unknown> | undefined): string {
@@ -320,8 +328,78 @@ export async function getAdsetData(
       leads,
       whatsapp_conversations: whatsapp,
       targeting_summary: formatTargeting(a.targeting),
+      targeting_raw: a.targeting,
     };
   });
+}
+
+export async function getCustomAudiences(
+  adAccountId: string,
+  accessToken: string
+): Promise<CustomAudience[]> {
+  try {
+    const data = await metaFetch<{ data: CustomAudience[] }>(
+      `/${adAccountId}/customaudiences?fields=id,name,subtype,approximate_count_lower_bound&access_token=${encodeURIComponent(accessToken)}&limit=200`
+    );
+    return data.data ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function updateAdsetTargeting(
+  adsetId: string,
+  targeting: Record<string, unknown>,
+  accessToken: string
+): Promise<boolean> {
+  await metaFetch<{ success: boolean }>(`/${adsetId}`, {
+    method: "POST",
+    body: JSON.stringify({ targeting, access_token: accessToken }),
+  });
+  return true;
+}
+
+export async function createAdset(params: {
+  adAccountId: string;
+  campaignId: string;
+  name: string;
+  targeting: Record<string, unknown>;
+  optimizationGoal: string;
+  bidStrategy?: string;
+  dailyBudgetCents?: number;
+  pageId?: string;
+  accessToken: string;
+}): Promise<string> {
+  // Skill rule: derive destination_type from optimization_goal
+  const isWhatsApp = params.optimizationGoal === "CONVERSATIONS";
+  const isWebsite = ["LEAD_GENERATION", "LINK_CLICKS", "OFFSITE_CONVERSIONS"].includes(params.optimizationGoal);
+
+  const destinationType = isWhatsApp ? "WHATSAPP"
+    : isWebsite ? "WEBSITE"
+    : undefined;
+
+  const body: Record<string, unknown> = {
+    name: params.name,
+    campaign_id: params.campaignId,
+    status: "PAUSED",
+    billing_event: "IMPRESSIONS",
+    optimization_goal: params.optimizationGoal,
+    targeting: params.targeting,
+    start_time: new Date().toISOString(),
+    access_token: params.accessToken,
+  };
+
+  if (destinationType) body.destination_type = destinationType;
+  // Skill rule: WhatsApp requires promoted_object with page_id
+  if (isWhatsApp && params.pageId) body.promoted_object = { page_id: params.pageId };
+  if (params.bidStrategy) body.bid_strategy = params.bidStrategy;
+  if (params.dailyBudgetCents) body.daily_budget = String(params.dailyBudgetCents);
+
+  const data = await metaFetch<{ id: string }>(`/${params.adAccountId}/adsets`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  return data.id;
 }
 
 export async function updateAdsetBudget(
@@ -363,6 +441,35 @@ export async function getAdAdsetId(
   return data.adset_id;
 }
 
+export async function getAdsetDetails(
+  adsetId: string,
+  accessToken: string
+): Promise<{ optimization_goal: string; destination_type?: string; daily_budget?: string }> {
+  const data = await metaFetch<{ optimization_goal: string; destination_type?: string; daily_budget?: string }>(
+    `/${adsetId}?fields=optimization_goal,destination_type,daily_budget&access_token=${encodeURIComponent(accessToken)}`
+  );
+  return data;
+}
+
+export async function getAdImageHash(
+  adId: string,
+  accessToken: string
+): Promise<string | null> {
+  try {
+    const data = await metaFetch<{ creative?: { id: string } }>(
+      `/${adId}?fields=creative{id}&access_token=${encodeURIComponent(accessToken)}`
+    );
+    const creativeId = data.creative?.id;
+    if (!creativeId) return null;
+    const creative = await metaFetch<{ object_story_spec?: { link_data?: { image_hash?: string } } }>(
+      `/${creativeId}?fields=object_story_spec&access_token=${encodeURIComponent(accessToken)}`
+    );
+    return creative.object_story_spec?.link_data?.image_hash ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function uploadAdImage(
   adAccountId: string,
   accessToken: string,
@@ -396,20 +503,40 @@ export async function createAdCreative(
     imageHash: string;
     message: string;
     headline: string;
-    whatsappNumber: string;
+    destinationType: "WHATSAPP" | "WEBSITE" | "INSTAGRAM_DIRECT" | "FACEBOOK";
+    whatsappNumber?: string;
+    linkUrl?: string;
+    cta?: string;
   }
 ): Promise<string> {
+  const linkData: Record<string, unknown> = {
+    image_hash: opts.imageHash,
+    message: opts.message,
+    name: opts.headline,
+  };
+
+  if (opts.destinationType === "WHATSAPP") {
+    // Skill rule: WHATSAPP_MESSAGE CTA with app_destination, link = wa.me URL
+    const waLink = opts.whatsappNumber
+      ? `https://wa.me/55${opts.whatsappNumber.replace(/\D/g, "")}`
+      : undefined;
+    linkData.call_to_action = {
+      type: "WHATSAPP_MESSAGE",
+      value: { app_destination: "WHATSAPP", ...(waLink ? { link: waLink } : {}) },
+    };
+  } else {
+    // WEBSITE / DIRECT / FACEBOOK — use LEARN_MORE or provided cta
+    const ctaType = opts.cta ?? "LEARN_MORE";
+    linkData.call_to_action = {
+      type: ctaType,
+      ...(opts.linkUrl ? { value: { link: opts.linkUrl } } : {}),
+    };
+    if (opts.linkUrl) linkData.link = opts.linkUrl;
+  }
+
   const story: Record<string, unknown> = {
     page_id: opts.pageId,
-    link_data: {
-      image_hash: opts.imageHash,
-      message: opts.message,
-      name: opts.headline,
-      call_to_action: {
-        type: "WHATSAPP_MESSAGE",
-        value: { app_destination: "WHATSAPP" },
-      },
-    },
+    link_data: linkData,
   };
   if (opts.instagramActorId) story.instagram_actor_id = opts.instagramActorId;
 
@@ -437,7 +564,7 @@ export async function createAd(
       name: adName,
       adset_id: adsetId,
       creative: { creative_id: creativeId },
-      status: "ACTIVE",
+      status: "PAUSED",
       access_token: accessToken,
     }),
   });
