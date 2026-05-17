@@ -6,7 +6,10 @@ import { analyzeMetaAds, analyzeGoogleAds } from "@/lib/analysis";
 import type { DailyReport } from "@/lib/reports-store";
 import { randomUUID } from "crypto";
 
-export const maxDuration = 60;
+// 300s: contas de alto gasto (muitos anúncios + chamada Claude) passam de 60s.
+// Em 60s o Vercel matava a função (504) e o report não era salvo — falha
+// silenciosa pq o fan-out chama este endpoint fire-and-forget.
+export const maxDuration = 300;
 
 // GET /api/cron/analysis-single?slug=<slug>
 // Analisa um único cliente — usado pelo cron principal para contornar timeout
