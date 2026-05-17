@@ -67,13 +67,29 @@ export async function analyzeMetaAds(client: Client, dateFrom: string, dateTo: s
   const adsetData = adsetDataRes.status === "fulfilled" ? adsetDataRes.value : [];
   const customAudiences = customAudiencesRes.status === "fulfilled" ? customAudiencesRes.value : [];
 
+  // Root cause fix: NÃO mascarar erro de fetch da Meta como "sem dados".
+  // Se as buscas críticas (ad-insights + campanha) FALHARAM (rejected),
+  // lançar erro para o analysis-single retornar meta_error e NÃO persistir
+  // uma row vazia enganosa — o próximo ciclo do cron re-tenta (autocura).
+  // Vazio genuíno (fetch ok, retornou []) continua caindo no empty() abaixo.
+  const adFailed = adMetricsRes.status === "rejected";
+  const campFailed = campaignDataRes.status === "rejected";
   if (adMetrics.length === 0 && campaignData.length === 0) {
+    if (adFailed || campFailed) {
+      const why = [
+        adFailed ? `ad-insights: ${adMetricsRes.reason instanceof Error ? adMetricsRes.reason.message : String(adMetricsRes.reason)}` : null,
+        campFailed ? `campanha: ${campaignDataRes.reason instanceof Error ? campaignDataRes.reason.message : String(campaignDataRes.reason)}` : null,
+      ].filter(Boolean).join(" | ");
+      throw new Error(`Falha ao buscar dados Meta — nao persistir vazio: ${why}`);
+    }
     return empty("Não há dados de anúncios ativos nos últimos 7 dias.");
   }
 
-  // Fast path: skip Claude if no meaningful spend
-  const totalSpendCheck = adMetrics.reduce((s, m) => s + m.spend, 0);
-  if (totalSpendCheck < 1 && adMetrics.length === 0) {
+  // "Sem gasto" só se ad-level E campaign-level não tiverem gasto. Antes
+  // olhava apenas ad-level e zerava contas cujo gasto aparece em campanha.
+  const adSpendCheck = adMetrics.reduce((s, m) => s + m.spend, 0);
+  const campSpendCheck = campaignData.reduce((s, c) => s + c.spend, 0);
+  if (adSpendCheck < 1 && campSpendCheck < 1) {
     return empty("Nenhum gasto registrado nos últimos 7 dias.");
   }
 
@@ -208,10 +224,22 @@ plano_de_acao: máx 5 ações priorizadas, seguindo ordem 12345, específicas (c
   };
 
   const now_iso = new Date().toISOString();
-  const totalSpend = adMetrics.reduce((s, m) => s + m.spend, 0);
-  const totalLeads = adMetrics.reduce((s, m) => s + m.leads, 0);
-  const totalWhatsapp = adMetrics.reduce((s, m) => s + m.whatsapp_conversations, 0);
-  const avgCtr = adMetrics.length > 0 ? adMetrics.reduce((s, m) => s + m.ctr, 0) / adMetrics.length : 0;
+  // Totais por ad-level; fallback para campaign-level quando não há linhas de
+  // anúncio (ads pausados, posts impulsionados, fetch ad-level parcial) —
+  // antes spend_7d/leads/ctr saíam 0 mesmo com gasto registrado em campanha.
+  const useCampFallback = adMetrics.length === 0 && campaignData.length > 0;
+  const totalSpend = useCampFallback
+    ? campaignData.reduce((s, c) => s + c.spend, 0)
+    : adMetrics.reduce((s, m) => s + m.spend, 0);
+  const totalLeads = useCampFallback
+    ? campaignData.reduce((s, c) => s + c.leads, 0)
+    : adMetrics.reduce((s, m) => s + m.leads, 0);
+  const totalWhatsapp = useCampFallback
+    ? campaignData.reduce((s, c) => s + (c.whatsapp_conversations ?? 0), 0)
+    : adMetrics.reduce((s, m) => s + m.whatsapp_conversations, 0);
+  const avgCtr = useCampFallback
+    ? (campaignData.length > 0 ? campaignData.reduce((s, c) => s + c.ctr, 0) / campaignData.length : 0)
+    : (adMetrics.length > 0 ? adMetrics.reduce((s, m) => s + m.ctr, 0) / adMetrics.length : 0);
   const convSummary = totalLeads > 0 ? `Leads: ${totalLeads}.` : totalWhatsapp > 0 ? `Conversas WhatsApp: ${totalWhatsapp}.` : "Nenhuma conversão registrada.";
   const defaultSummary = `${campaignData.length} campanha(s), ${adsetData.length} conjunto(s) e ${adMetrics.length} anúncio(s) nos últimos 7 dias (top ${topCampaigns.length}/${topAdsets.length}/${topAds.length} por gasto analisados). Gasto total: R$ ${totalSpend.toFixed(2)}. CTR médio: ${avgCtr.toFixed(2)}%. ${convSummary}`;
 
