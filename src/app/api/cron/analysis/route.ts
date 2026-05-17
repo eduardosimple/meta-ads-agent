@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getClients } from "@/lib/clients";
-import { saveReport, getReport } from "@/lib/reports-store";
-import { getAdInsights } from "@/lib/meta-api";
-import { getGoogleCampaignsWithMetrics } from "@/lib/google-ads-api";
-import { analyzeMetaAds, analyzeGoogleAds } from "@/lib/analysis";
-import type { DailyReport } from "@/lib/reports-store";
-import { randomUUID } from "crypto";
+import { getReportsByDate } from "@/lib/reports-store";
 
-export const maxDuration = 300;
+export const maxDuration = 30;
 
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
@@ -19,87 +14,59 @@ export async function GET(req: NextRequest) {
   const activeClients = clients.filter(c => c.ativo);
 
   const today = new Date().toISOString().split("T")[0];
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
-  const results = [];
+  // Single query to get all today's reports
+  let todayReports: Awaited<ReturnType<typeof getReportsByDate>> = [];
+  let dbError: string | null = null;
+  try {
+    todayReports = await getReportsByDate(today);
+  } catch (e) {
+    dbError = e instanceof Error ? e.message : String(e);
+  }
+  const existingMap = new Map(todayReports.map(r => [r.client_slug, r]));
 
-  for (const client of activeClients) {
-    try {
-      // Skip if today's report already has both meta and google (or meta for non-google clients)
-      const existing = await getReport(client.slug, today).catch(() => null);
-      const needsMeta = !existing?.meta;
-      const needsGoogle = client.google ? !existing?.google : false;
-      if (!needsMeta && !needsGoogle) {
-        results.push({ client: client.slug, status: "skipped", date: today });
-        continue;
-      }
+  const sortedClients = [...activeClients].sort((a, b) => {
+    const ra = existingMap.get(a.slug);
+    const rb = existingMap.get(b.slug);
+    const pa = !ra ? 0 : !ra.meta ? 1 : 2;
+    const pb = !rb ? 0 : !rb.meta ? 1 : 2;
+    return pa - pb;
+  });
 
-      const report: DailyReport = existing ?? {
-        id: randomUUID(),
-        client_slug: client.slug,
-        client_name: client.nome,
-        date: today,
-        created_at: new Date().toISOString(),
-      };
+  const limitParam = req.nextUrl.searchParams.get("limit");
+  const workList = limitParam ? sortedClients.slice(0, parseInt(limitParam)) : sortedClients;
 
-      // ── Meta analysis ──
-      if (needsMeta) try {
-        const [analysis, metrics] = await Promise.allSettled([
-          analyzeMetaAds(client, sevenDaysAgo, today),
-          getAdInsights(client.meta.ad_account_id, client.meta.access_token, sevenDaysAgo, today),
-        ]);
+  const clientsNeedingWork = workList.filter(c => {
+    const r = existingMap.get(c.slug);
+    return !r?.meta || (c.google && !r?.google);
+  });
 
-        if (analysis.status === "fulfilled") {
-          const m = metrics.status === "fulfilled" ? metrics.value : [];
-          report.meta = {
-            ...analysis.value,
-            spend_7d: m.reduce((s, a) => s + a.spend, 0),
-            leads_7d: m.reduce((s, a) => s + a.leads, 0),
-            avg_ctr: m.length > 0 ? m.reduce((s, a) => s + a.ctr, 0) / m.length : 0,
-          };
-        } else {
-          const reason = analysis.reason instanceof Error ? analysis.reason.message : String(analysis.reason);
-          console.error(`[cron] meta analysis rejected for ${client.slug}:`, reason);
-          results.push({ client: client.slug, status: "meta_error", error: reason, date: today });
-        }
-      } catch (e) {
-        console.error(`[cron] meta analysis error for ${client.slug}:`, e);
-      }
+  const skippedCount = workList.length - clientsNeedingWork.length;
 
-      // ── Google analysis ──
-      if (needsGoogle && client.google) {
-        try {
-          const [analysis, gMetrics] = await Promise.allSettled([
-            analyzeGoogleAds(client, sevenDaysAgo, today),
-            getGoogleCampaignsWithMetrics(client.google, sevenDaysAgo, today),
-          ]);
+  const baseUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : "http://localhost:3000";
 
-          if (analysis.status === "fulfilled") {
-            const g = gMetrics.status === "fulfilled" ? gMetrics.value : [];
-            const gSpend = g.reduce((s, c) => s + c.spend, 0);
-            const gConversions = g.reduce((s, c) => s + c.conversions, 0);
-            report.google = {
-              ...analysis.value,
-              spend_7d: gSpend,
-              conversions_7d: gConversions,
-              avg_ctr: g.length > 0 ? g.reduce((s, c) => s + c.ctr, 0) / g.length : 0,
-              cost_per_conversion: gConversions > 0 ? gSpend / gConversions : 0,
-            };
-          }
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          console.error(`[cron] google analysis error for ${client.slug}:`, msg);
-          results.push({ client: client.slug, status: "google_error", error: msg, date: today });
-        }
-      }
-
-      await saveReport(report);
-      results.push({ client: client.slug, status: "ok", date: today });
-    } catch (e) {
-      console.error(`[cron] error for ${client.slug}:`, e);
-      results.push({ client: client.slug, status: "error" });
-    }
+  // Fire-and-forget: dispatch all without awaiting
+  for (const client of clientsNeedingWork) {
+    fetch(
+      `${baseUrl}/api/cron/analysis-single?slug=${client.slug}`,
+      { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` } }
+    ).catch(() => { /* ignore — each function logs its own errors */ });
   }
 
-  return NextResponse.json({ processed: results, at: new Date().toISOString() });
+  return NextResponse.json({
+    dispatched: clientsNeedingWork.map(c => c.slug),
+    skipped: skippedCount,
+    total_active: activeClients.length,
+    db_error: dbError,
+    debug: {
+      no_row: sortedClients.filter(c => !existingMap.get(c.slug)).length,
+      meta_null: sortedClients.filter(c => { const r = existingMap.get(c.slug); return r && !r.meta; }).length,
+      complete: sortedClients.filter(c => !!existingMap.get(c.slug)?.meta).length,
+    },
+    at: new Date().toISOString(),
+  });
 }
