@@ -88,6 +88,8 @@ export interface Proposal {
   };
   score?: number;
   budget_sugerido_cents?: number;
+  /** Set quando status="creative_requested": id do melhor anúncio da conta usado como referência. */
+  best_ad_id?: string;
 }
 
 export interface ActionItem {

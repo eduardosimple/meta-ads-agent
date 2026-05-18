@@ -29,6 +29,7 @@ export async function PATCH(
     platform: "meta" | "google";
     copy_sugerida?: Proposal["copy_sugerida"];
     status?: string;
+    best_ad_id?: string;
   };
 
   const { date, ad_id, platform } = body;
@@ -46,6 +47,9 @@ export async function PATCH(
 
   if (body.copy_sugerida !== undefined) {
     analysis.proposals[idx].copy_sugerida = body.copy_sugerida;
+  }
+  if (body.best_ad_id !== undefined) {
+    analysis.proposals[idx].best_ad_id = body.best_ad_id;
   }
   if (body.status !== undefined) {
     analysis.proposals[idx].status = body.status as Proposal["status"];
