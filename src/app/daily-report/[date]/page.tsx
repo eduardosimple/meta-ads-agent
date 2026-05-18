@@ -305,24 +305,27 @@ export default async function DailyReportPage({
           const planoAcao = report.meta?.plano_de_acao ?? [];
 
           return (
-            <div
+            <details
               key={report.id}
-              className={`bg-white rounded-2xl border-2 shadow-sm overflow-hidden ${status.ring}`}
+              className={`group bg-white rounded-2xl border-2 shadow-sm overflow-hidden ${status.ring}`}
             >
-              {/* Cabeçalho do cliente */}
-              <div className="px-5 py-3.5 border-b border-gray-100">
+              {/* Linha do cliente (recolhida) — clicável para abrir as ações */}
+              <summary className="px-5 py-3.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden hover:bg-gray-50/70 transition-colors group-open:border-b group-open:border-gray-100">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${status.dot}`} />
                     <p className="font-bold text-gray-900 text-sm truncate">{report.client_name}</p>
                   </div>
-                  <span className={`shrink-0 text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                    status.level === "red" ? "bg-red-100 text-red-700" :
-                    status.level === "yellow" ? "bg-amber-100 text-amber-700" :
-                    "bg-emerald-100 text-emerald-700"
-                  }`}>
-                    {status.label}
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                      status.level === "red" ? "bg-red-100 text-red-700" :
+                      status.level === "yellow" ? "bg-amber-100 text-amber-700" :
+                      "bg-emerald-100 text-emerald-700"
+                    }`}>
+                      {status.label}
+                    </span>
+                    <span className="text-gray-400 text-xs transition-transform group-open:rotate-90">▸</span>
+                  </div>
                 </div>
                 {/* KPIs em linha compacta */}
                 <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs">
@@ -341,7 +344,7 @@ export default async function DailyReportPage({
                   )}
                   <span className="text-gray-400">Ações <span className={`font-bold ${pending.length > 0 ? "text-amber-600" : "text-gray-800"}`}>{pending.length}</span></span>
                 </div>
-              </div>
+              </summary>
 
               <div className="p-4 space-y-3">
                 {/* Fila de ações priorizada (pior primeiro) */}
@@ -408,7 +411,7 @@ export default async function DailyReportPage({
                   </details>
                 )}
               </div>
-            </div>
+            </details>
           );
         })}
 
