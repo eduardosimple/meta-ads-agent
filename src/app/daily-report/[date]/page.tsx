@@ -22,34 +22,61 @@ function fmtDate(date: string) {
 }
 
 const verdictLabel: Record<string, string> = {
-  pausar: "Pausar", ajustar: "Ajustar", testar_variacao: "Testar variação",
-  escalar: "Escalar", manter: "Manter",
+  pausar: "PAUSAR", ajustar: "AJUSTAR", testar_variacao: "TESTAR",
+  escalar: "ESCALAR", manter: "MANTER",
 };
-const verdictColor: Record<string, string> = {
-  pausar: "bg-red-100 text-red-700", ajustar: "bg-yellow-100 text-yellow-700",
-  testar_variacao: "bg-purple-100 text-purple-700", escalar: "bg-green-100 text-green-700",
-  manter: "bg-blue-100 text-blue-700",
+const verdictTag: Record<string, string> = {
+  pausar: "bg-red-600 text-white",
+  ajustar: "bg-amber-500 text-white",
+  testar_variacao: "bg-violet-600 text-white",
+  escalar: "bg-emerald-600 text-white",
+  manter: "bg-slate-400 text-white",
 };
-const verdictBorder: Record<string, string> = {
-  pausar: "border-l-red-400", ajustar: "border-l-yellow-400",
-  testar_variacao: "border-l-purple-400", escalar: "border-l-green-400",
-  manter: "border-l-blue-300",
+// Quão urgente é cada verdict (menor = mais urgente) — desempate da ordenação
+const verdictUrgency: Record<string, number> = {
+  pausar: 0, ajustar: 1, testar_variacao: 2, escalar: 3, manter: 4,
 };
 
-/** Group proposals by campaign → adset */
-function groupProposals(proposals: Proposal[]) {
-  const campaigns = new Map<string, { campaign_name: string; adsets: Map<string, { adset_name: string; proposals: Proposal[] }> }>();
-  for (const p of proposals) {
-    if (!campaigns.has(p.campaign_name)) {
-      campaigns.set(p.campaign_name, { campaign_name: p.campaign_name, adsets: new Map() });
-    }
-    const camp = campaigns.get(p.campaign_name)!;
-    if (!camp.adsets.has(p.adset_name)) {
-      camp.adsets.set(p.adset_name, { adset_name: p.adset_name, proposals: [] });
-    }
-    camp.adsets.get(p.adset_name)!.proposals.push(p);
-  }
-  return campaigns;
+type StatusLevel = "red" | "yellow" | "green";
+
+/** Status do cliente para triagem: vermelho queima dinheiro, amarelo precisa de ajuste, verde ok. */
+function clientStatus(pending: Proposal[]): { level: StatusLevel; dot: string; ring: string; label: string } {
+  const hasPausar = pending.some(p => p.verdict === "pausar");
+  const hasAdjust = pending.some(p => p.verdict === "ajustar" || p.verdict === "testar_variacao");
+  if (hasPausar) return { level: "red", dot: "bg-red-500", ring: "border-red-200", label: "Crítico" };
+  if (hasAdjust) return { level: "yellow", dot: "bg-amber-400", ring: "border-amber-200", label: "Ajustar" };
+  return { level: "green", dot: "bg-emerald-500", ring: "border-gray-100", label: "Ok" };
+}
+
+function scoreColor(score: number): { bar: string; text: string; dot: string } {
+  if (score < 40) return { bar: "bg-red-500", text: "text-red-600", dot: "🔴" };
+  if (score < 70) return { bar: "bg-amber-400", text: "text-amber-600", dot: "🟡" };
+  return { bar: "bg-emerald-500", text: "text-emerald-600", dot: "🟢" };
+}
+
+/** Barra de 10 blocos proporcional ao score (0-100), colorida por faixa. */
+function ScoreBar({ score }: { score: number }) {
+  const s = Math.max(0, Math.min(100, Math.round(score)));
+  const filled = Math.round(s / 10);
+  const c = scoreColor(s);
+  return (
+    <div className="flex items-center gap-2 shrink-0">
+      <div className="flex gap-[2px]" aria-label={`score ${s}`}>
+        {Array.from({ length: 10 }).map((_, i) => (
+          <span
+            key={i}
+            className={`w-1.5 h-3.5 rounded-[1px] ${i < filled ? c.bar : "bg-gray-200"}`}
+          />
+        ))}
+      </div>
+      <span className={`text-xs font-bold tabular-nums ${c.text}`}>{s}</span>
+      <span className="text-xs leading-none">{c.dot}</span>
+    </div>
+  );
+}
+
+function pScore(p: Proposal): number {
+  return typeof p.score === "number" ? p.score : 50;
 }
 
 function ProposalRow({
@@ -63,34 +90,42 @@ function ProposalRow({
   const scaleBudget = p.action.type === "scale_budget" ? p.action : null;
 
   return (
-    <div className={`border-l-4 ${verdictBorder[p.verdict] ?? "border-l-gray-200"} pl-3 py-2 space-y-1`}>
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-medium text-gray-800 flex-1 min-w-0 truncate">{p.ad_name}</p>
-        <span className={`shrink-0 text-xs px-1.5 py-0.5 rounded-full font-medium ${verdictColor[p.verdict] ?? ""}`}>
-          {verdictLabel[p.verdict] ?? p.verdict}
+    <div className="rounded-xl border border-gray-100 bg-white px-3 py-2.5 space-y-1.5">
+      {/* Linha 1: nome + barra de score + selo de ação */}
+      <div className="flex items-center gap-2">
+        <p className="text-xs font-semibold text-gray-900 flex-1 min-w-0 truncate">{p.ad_name}</p>
+        <ScoreBar score={pScore(p)} />
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] text-gray-400 truncate min-w-0">
+          {p.campaign_name}{p.adset_name ? ` · ${p.adset_name}` : ""}
+        </p>
+        <span className={`shrink-0 text-[10px] tracking-wide px-2 py-0.5 rounded-md font-bold ${verdictTag[p.verdict] ?? "bg-gray-400 text-white"}`}>
+          {verdictLabel[p.verdict] ?? p.verdict.toUpperCase()}
         </span>
       </div>
-      <p className="text-xs text-gray-500 line-clamp-2">{p.diagnostico}</p>
+
+      {/* Diagnóstico + métricas */}
+      <p className="text-xs text-gray-600 leading-snug">{p.diagnostico}</p>
       {p.metricas_problema.length > 0 && (
         <div className="flex flex-wrap gap-1">
-          {p.metricas_problema.slice(0, 3).map((m, i) => (
-            <span key={i} className="text-xs px-1 py-0.5 bg-gray-100 rounded text-gray-500">{m}</span>
+          {p.metricas_problema.slice(0, 4).map((m, i) => (
+            <span key={i} className="text-[10px] px-1.5 py-0.5 bg-gray-100 rounded text-gray-500">{m}</span>
           ))}
         </div>
       )}
       {p.acao_sugerida && (
-        <p className="text-xs text-gray-400 italic">{p.acao_sugerida}</p>
+        <p className="text-xs text-gray-700 font-medium">→ {p.acao_sugerida}</p>
       )}
 
-      {/* Action area */}
+      {/* ───── Action area (preservada — interatividade intacta) ───── */}
       {p.status === "approved" && (
-        <p className="text-xs text-green-600 font-medium">Executado — {p.result_message}</p>
+        <p className="text-xs text-emerald-600 font-medium">Executado — {p.result_message}</p>
       )}
       {p.status === "rejected" && (
         <p className="text-xs text-gray-400">Ignorado.</p>
       )}
 
-      {/* Creative adjustment: copy_sugerida present */}
       {p.status === "pending" && p.copy_sugerida && (
         <ApprovalCard
           clientSlug={clientSlug}
@@ -106,7 +141,6 @@ function ProposalRow({
           reportKey={reportKey}
         />
       )}
-      {/* Creative adjustment: needs copy generation */}
       {p.status === "pending" && !p.copy_sugerida && isCreativeAdjust && (
         <GenerateCopyButton
           clientSlug={clientSlug}
@@ -117,7 +151,6 @@ function ProposalRow({
           verdict={p.verdict as "ajustar" | "testar_variacao"}
         />
       )}
-      {/* Audience/adset update — automated via Meta API */}
       {p.status === "pending" && isManualAdjust && p.ajuste_tipo === "publico" && (p.action.type === "create_adset" || p.action.type === "update_adset_targeting") && (
         <TargetingChangeCard
           clientSlug={clientSlug}
@@ -132,7 +165,6 @@ function ProposalRow({
           initialResultMessage={p.result_message}
         />
       )}
-      {/* Manual adjustment (lance/configuracao) OR público sem targeting spec */}
       {p.status === "pending" && isManualAdjust && (p.ajuste_tipo !== "publico" || (p.action.type !== "create_adset" && p.action.type !== "update_adset_targeting")) && (
         <MarkDoneButton
           clientSlug={clientSlug}
@@ -143,8 +175,6 @@ function ProposalRow({
           ajusteTipo={p.ajuste_tipo!}
         />
       )}
-
-      {/* Pause / Scale buttons */}
       {p.status === "pending" && !p.copy_sugerida && isPauseScale && (
         <ActionButton
           clientSlug={clientSlug}
@@ -194,16 +224,26 @@ export default async function DailyReportPage({
 
   const briefs = await Promise.all(reports.map(r => getDesignBrief(r.client_slug).catch(() => null)));
 
-  const totalSpend = reports.reduce((s, r) => s + (r.meta?.spend_7d ?? 0) + (r.google?.spend_7d ?? 0), 0);
-  const totalPending = reports.reduce((n, r) => {
-    return n +
-      (r.meta?.proposals ?? []).filter(p => p.status === "pending").length +
-      (r.google?.proposals ?? []).filter(p => p.status === "pending").length;
-  }, 0);
-  const criticalCount = reports.filter(r =>
-    r.meta?.proposals.some(p => p.verdict === "pausar" && p.status === "pending") ||
-    r.google?.proposals.some(p => p.verdict === "pausar" && p.status === "pending")
-  ).length;
+  // Pré-computa status/ordenação por cliente
+  const enriched = reports.map((report, idx) => {
+    const metaProposals = report.meta?.proposals ?? [];
+    const googleProposals = report.google?.proposals ?? [];
+    const pending = [...metaProposals, ...googleProposals].filter(p => p.status === "pending");
+    const pendingActionable = pending.filter(p => p.verdict !== "manter");
+    const status = clientStatus(pendingActionable);
+    const spend = (report.meta?.spend_7d ?? 0) + (report.google?.spend_7d ?? 0);
+    return { report, idx, metaProposals, googleProposals, pending, pendingActionable, status, spend };
+  });
+
+  // Triagem: vermelho → amarelo → verde; dentro, maior gasto primeiro
+  const statusRank: Record<StatusLevel, number> = { red: 0, yellow: 1, green: 2 };
+  enriched.sort((a, b) =>
+    statusRank[a.status.level] - statusRank[b.status.level] || b.spend - a.spend
+  );
+
+  const totalSpend = enriched.reduce((s, e) => s + e.spend, 0);
+  const totalPending = enriched.reduce((n, e) => n + e.pending.length, 0);
+  const criticalCount = enriched.filter(e => e.status.level === "red").length;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -229,7 +269,7 @@ export default async function DailyReportPage({
             </div>
             <div>
               <p className="text-xs text-gray-400">Ações</p>
-              <p className={`text-lg font-bold ${totalPending > 0 ? "text-orange-600" : "text-gray-900"}`}>{totalPending}</p>
+              <p className={`text-lg font-bold ${totalPending > 0 ? "text-amber-600" : "text-gray-900"}`}>{totalPending}</p>
             </div>
           </div>
         </div>
@@ -241,172 +281,91 @@ export default async function DailyReportPage({
           </div>
         )}
 
-        {/* Per-client cards */}
-        {reports.map((report, reportIdx) => {
-          const metaProposals = report.meta?.proposals ?? [];
-          const googleProposals = report.google?.proposals ?? [];
-          const allPending = [...metaProposals, ...googleProposals].filter(p => p.status === "pending");
-          const hasCritical = allPending.some(p => p.verdict === "pausar");
-          const topAction = report.meta?.plano_de_acao?.[0];
-          const brief = briefs[reportIdx];
+        {/* Clientes — ordenados por urgência (triagem) */}
+        {enriched.map(({ report, idx, metaProposals, googleProposals, pending, pendingActionable, status }) => {
+          const brief = briefs[idx];
 
-          // For CreateCreativeCard: find worst and best
+          // Itens acionáveis ordenados pior → melhor (score asc; desempate por urgência do verdict)
+          const sortedActions = [...pendingActionable].sort((a, b) =>
+            pScore(a) - pScore(b) ||
+            (verdictUrgency[a.verdict] ?? 9) - (verdictUrgency[b.verdict] ?? 9)
+          );
+          const metaPlatform = new Set(metaProposals.map(p => p.id));
+
+          // CreateCreativeCard: pior e melhor
           const allProposals = [...metaProposals, ...googleProposals];
           const worstAd = allProposals.find(p => (p.verdict === "pausar" || p.verdict === "ajustar") && p.status === "pending");
           const bestAd = allProposals.find(p => p.verdict === "escalar" || p.verdict === "manter");
 
-          // Group Meta proposals by campaign → adset (only pending, non-manter)
-          const actionableMetaProposals = metaProposals.filter(p => p.verdict !== "manter" && p.status === "pending");
-          const metaGrouped = groupProposals(actionableMetaProposals);
-
-          // Group Google proposals similarly
-          const actionableGoogleProposals = googleProposals.filter(p => p.verdict !== "manter" && p.status === "pending");
-          const googleGrouped = groupProposals(actionableGoogleProposals);
+          // Contexto de-enfatizado
+          const infoAlerts = [
+            ...(report.meta?.alerts ?? []),
+            ...(report.google?.alerts ?? []),
+          ];
+          const planoAcao = report.meta?.plano_de_acao ?? [];
 
           return (
             <div
               key={report.id}
-              className={`bg-white rounded-2xl border shadow-sm overflow-hidden ${hasCritical ? "border-red-200" : "border-gray-100"}`}
+              className={`bg-white rounded-2xl border-2 shadow-sm overflow-hidden ${status.ring}`}
             >
-              {/* Client header */}
-              <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
-                <div>
-                  <p className="font-semibold text-gray-900 text-sm">{report.client_name}</p>
-                  <div className="flex gap-2 mt-0.5">
-                    {report.meta && <span className="text-xs text-blue-500 font-medium">Meta</span>}
-                    {report.google && <span className="text-xs text-orange-500 font-medium">Google</span>}
+              {/* Cabeçalho do cliente */}
+              <div className="px-5 py-3.5 border-b border-gray-100">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${status.dot}`} />
+                    <p className="font-bold text-gray-900 text-sm truncate">{report.client_name}</p>
                   </div>
+                  <span className={`shrink-0 text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                    status.level === "red" ? "bg-red-100 text-red-700" :
+                    status.level === "yellow" ? "bg-amber-100 text-amber-700" :
+                    "bg-emerald-100 text-emerald-700"
+                  }`}>
+                    {status.label}
+                  </span>
                 </div>
-                <div>
-                  {hasCritical
-                    ? <span className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded-full font-medium">Crítico</span>
-                    : allPending.length > 0
-                    ? <span className="text-xs px-2 py-1 bg-yellow-100 text-yellow-700 rounded-full font-medium">{allPending.length} ação{allPending.length !== 1 ? "ões" : ""}</span>
-                    : <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full font-medium">Normal</span>
-                  }
-                </div>
-              </div>
-
-              <div className="p-4 space-y-4">
-                {/* KPIs */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                {/* KPIs em linha compacta */}
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs">
                   {report.meta && (
                     <>
-                      <div className="bg-gray-50 rounded-xl py-2">
-                        <p className="text-xs text-gray-400">Gasto Meta</p>
-                        <p className="text-sm font-bold text-gray-800">{fmtBRL(report.meta.spend_7d ?? 0)}</p>
-                      </div>
-                      <div className="bg-gray-50 rounded-xl py-2">
-                        <p className="text-xs text-gray-400">Leads</p>
-                        <p className="text-sm font-bold text-gray-800">{report.meta.leads_7d ?? 0}</p>
-                      </div>
+                      <span className="text-gray-400">Meta <span className="font-bold text-gray-800">{fmtBRL(report.meta.spend_7d ?? 0)}</span></span>
+                      <span className="text-gray-400">Leads <span className="font-bold text-gray-800">{report.meta.leads_7d ?? 0}</span></span>
+                      <span className="text-gray-400">CTR <span className="font-bold text-gray-800">{(report.meta.avg_ctr ?? 0).toFixed(2)}%</span></span>
                     </>
                   )}
                   {report.google && (
                     <>
-                      <div className="bg-orange-50 rounded-xl py-2">
-                        <p className="text-xs text-gray-400">Gasto Google</p>
-                        <p className="text-sm font-bold text-gray-800">{fmtBRL(report.google.spend_7d ?? 0)}</p>
-                      </div>
-                      <div className="bg-orange-50 rounded-xl py-2">
-                        <p className="text-xs text-gray-400">Conversões</p>
-                        <p className="text-sm font-bold text-gray-800">{(report.google.conversions_7d ?? 0).toFixed(0)}</p>
-                      </div>
+                      <span className="text-gray-400">Google <span className="font-bold text-gray-800">{fmtBRL(report.google.spend_7d ?? 0)}</span></span>
+                      <span className="text-gray-400">Conv. <span className="font-bold text-gray-800">{(report.google.conversions_7d ?? 0).toFixed(0)}</span></span>
                     </>
                   )}
+                  <span className="text-gray-400">Ações <span className={`font-bold ${pending.length > 0 ? "text-amber-600" : "text-gray-800"}`}>{pending.length}</span></span>
                 </div>
+              </div>
 
-                {/* Summaries */}
-                {report.meta?.summary_text && (
-                  <p className="text-xs text-gray-600 leading-relaxed">
-                    <span className="font-semibold text-blue-600">Meta — </span>{report.meta.summary_text}
-                  </p>
-                )}
-                {report.google?.summary_text && (
-                  <p className="text-xs text-gray-600 leading-relaxed">
-                    <span className="font-semibold text-orange-500">Google — </span>{report.google.summary_text}
-                  </p>
-                )}
-
-                {/* Top plano action */}
-                {topAction && (
-                  <div className={`rounded-xl px-3 py-2.5 text-xs border ${
-                    topAction.impacto === "alto" ? "bg-red-50 border-red-200 text-red-700" :
-                    topAction.impacto === "medio" ? "bg-yellow-50 border-yellow-200 text-yellow-700" :
-                    "bg-gray-50 border-gray-200 text-gray-600"
-                  }`}>
-                    <span className="font-semibold">#{topAction.prioridade} {topAction.titulo}</span>
-                    {" — "}{topAction.descricao}
-                  </div>
-                )}
-
-                {/* ─── Meta hierarchy ─── */}
-                {metaGrouped.size > 0 && (
-                  <div className="space-y-3">
-                    <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide">Meta — otimizações</p>
-                    {Array.from(metaGrouped.values()).map(campaign => (
-                      <div key={campaign.campaign_name} className="rounded-xl border border-gray-100 overflow-hidden">
-                        {/* Campaign row */}
-                        <div className="px-3 py-2 bg-gray-50 border-b border-gray-100">
-                          <p className="text-xs font-semibold text-gray-700 truncate">📢 {campaign.campaign_name}</p>
-                        </div>
-                        {/* Adsets */}
-                        {Array.from(campaign.adsets.values()).map(adset => (
-                          <div key={adset.adset_name} className="border-b border-gray-50 last:border-0">
-                            <div className="px-3 py-1.5 bg-gray-50/50">
-                              <p className="text-xs text-gray-500 truncate">👥 {adset.adset_name}</p>
-                            </div>
-                            <div className="px-3 py-2 space-y-3">
-                              {adset.proposals.map(p => (
-                                <ProposalRow
-                                  key={p.id}
-                                  p={p}
-                                  clientSlug={report.client_slug}
-                                  date={date}
-                                  reportKey={reportKey}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+              <div className="p-4 space-y-3">
+                {/* Fila de ações priorizada (pior primeiro) */}
+                {sortedActions.length > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">
+                      O que fazer ({sortedActions.length})
+                    </p>
+                    {sortedActions.map(p => (
+                      <ProposalRow
+                        key={p.id}
+                        p={p}
+                        clientSlug={report.client_slug}
+                        date={date}
+                        reportKey={reportKey}
+                        platform={metaPlatform.has(p.id) ? "meta" : "google"}
+                      />
                     ))}
                   </div>
+                ) : (
+                  <p className="text-xs text-gray-400">Nenhuma ação pendente — conta saudável.</p>
                 )}
 
-                {/* ─── Google hierarchy ─── */}
-                {googleGrouped.size > 0 && (
-                  <div className="space-y-3">
-                    <p className="text-xs font-semibold text-orange-500 uppercase tracking-wide">Google — otimizações</p>
-                    {Array.from(googleGrouped.values()).map(campaign => (
-                      <div key={campaign.campaign_name} className="rounded-xl border border-orange-100 overflow-hidden">
-                        <div className="px-3 py-2 bg-orange-50 border-b border-orange-100">
-                          <p className="text-xs font-semibold text-orange-700 truncate">📢 {campaign.campaign_name}</p>
-                        </div>
-                        {Array.from(campaign.adsets.values()).map(adset => (
-                          <div key={adset.adset_name} className="border-b border-orange-50 last:border-0">
-                            <div className="px-3 py-1.5 bg-orange-50/30">
-                              <p className="text-xs text-gray-500 truncate">👥 {adset.adset_name}</p>
-                            </div>
-                            <div className="px-3 py-2 space-y-3">
-                              {adset.proposals.map(p => (
-                                <ProposalRow
-                                  key={p.id}
-                                  p={p}
-                                  clientSlug={report.client_slug}
-                                  date={date}
-                                  reportKey={reportKey}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* CreateCreativeCard */}
+                {/* CreateCreativeCard (preservado) */}
                 {worstAd && bestAd && (
                   <CreateCreativeCard
                     clientSlug={report.client_slug}
@@ -418,6 +377,35 @@ export default async function DailyReportPage({
                     hasBrief={!!brief}
                     reportKey={reportKey}
                   />
+                )}
+
+                {/* Contexto — de-enfatizado, colapsável */}
+                {(report.meta?.summary_text || report.google?.summary_text || infoAlerts.length > 0 || planoAcao.length > 0) && (
+                  <details className="group">
+                    <summary className="text-[11px] text-gray-400 cursor-pointer select-none hover:text-gray-600 list-none flex items-center gap-1">
+                      <span className="group-open:rotate-90 transition-transform">▸</span> Contexto e resumo
+                    </summary>
+                    <div className="mt-2 space-y-2 pl-3 border-l-2 border-gray-100">
+                      {report.meta?.summary_text && (
+                        <p className="text-xs text-gray-500 leading-relaxed">
+                          <span className="font-semibold text-blue-500">Meta — </span>{report.meta.summary_text}
+                        </p>
+                      )}
+                      {report.google?.summary_text && (
+                        <p className="text-xs text-gray-500 leading-relaxed">
+                          <span className="font-semibold text-orange-500">Google — </span>{report.google.summary_text}
+                        </p>
+                      )}
+                      {planoAcao.slice(0, 3).map((a, i) => (
+                        <p key={i} className="text-xs text-gray-500">
+                          <span className="font-semibold">#{a.prioridade} {a.titulo}</span> — {a.descricao}
+                        </p>
+                      ))}
+                      {infoAlerts.slice(0, 4).map((al, i) => (
+                        <p key={i} className="text-xs text-gray-400">{al.title}: {al.message}</p>
+                      ))}
+                    </div>
+                  </details>
                 )}
               </div>
             </div>
