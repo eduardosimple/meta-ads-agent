@@ -59,9 +59,13 @@ export default function CreateCreativeCard({
 
   if (status === "requested") {
     return (
-      <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-sm text-blue-700">
-        Criativo solicitado. O Orquestrador vai gerar baseado no melhor da conta.
-        {hasBrief && <span className="block text-xs mt-1 text-blue-500">Brief de design do cliente disponível — será usado na criação.</span>}
+      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-800 space-y-1.5">
+        <p className="font-semibold">Pedido registrado na fila.</p>
+        <p className="text-xs">
+          O pipeline de criativo está em manutenção e <b>pode não processar agora</b>.
+          Seu pedido aparece no painel "Pedidos de criativo pendentes" no topo do relatório.
+          {hasBrief && " O brief de design do cliente será usado quando processado."}
+        </p>
       </div>
     );
   }

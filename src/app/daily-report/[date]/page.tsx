@@ -243,6 +243,20 @@ export default async function DailyReportPage({
 
   const totalSpend = enriched.reduce((s, e) => s + e.spend, 0);
   const totalPending = enriched.reduce((n, e) => n + e.pending.length, 0);
+
+  // Pedidos de criativo na fila (status creative_requested / generating em qualquer proposta)
+  // Mostrados num painel no topo — assim o usuário enxerga "pra onde foi" o pedido dele.
+  const pendingCreativeReqs = enriched.flatMap(({ report }) => {
+    const all = [...(report.meta?.proposals ?? []), ...(report.google?.proposals ?? [])];
+    return all
+      .filter(p => p.status === "creative_requested" || p.status === "generating")
+      .map(p => ({
+        client_name: report.client_name,
+        client_slug: report.client_slug,
+        ad_name: p.ad_name,
+        status: p.status as "creative_requested" | "generating",
+      }));
+  });
   const criticalCount = enriched.filter(e => e.status.level === "red").length;
 
   return (
@@ -278,6 +292,36 @@ export default async function DailyReportPage({
           <div className="bg-white rounded-2xl p-10 text-center border border-gray-100">
             <p className="text-gray-400 text-sm">Nenhum relatório para {fmtDate(date)}.</p>
             <p className="text-xs text-gray-300 mt-1">O cron executa diariamente a partir das 6h.</p>
+          </div>
+        )}
+
+        {/* Pedidos de criativo na fila — torna visível "pra onde foi" o pedido */}
+        {pendingCreativeReqs.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-bold text-amber-800 uppercase tracking-wide">
+                Pedidos de criativo na fila ({pendingCreativeReqs.length})
+              </p>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-bold">
+                Pipeline em manutenção
+              </span>
+            </div>
+            <p className="text-xs text-amber-700">
+              Você solicitou novos criativos abaixo. O pipeline de geração está em manutenção (3 defeitos abertos) e <b>pode não processar agora</b> — os pedidos ficam aqui na fila até reativarmos.
+            </p>
+            <ul className="text-xs text-amber-900 space-y-1 pt-1">
+              {pendingCreativeReqs.map((r, i) => (
+                <li key={i} className="flex items-center gap-2">
+                  <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                    r.status === "generating" ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-800"
+                  }`}>
+                    {r.status === "generating" ? "GERANDO" : "NA FILA"}
+                  </span>
+                  <span className="font-semibold">{r.client_name}</span>
+                  <span className="text-amber-700 truncate">— {r.ad_name}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 

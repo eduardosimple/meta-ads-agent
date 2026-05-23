@@ -281,10 +281,24 @@ plano_de_acao: máx 5 ações priorizadas, seguindo ordem 12345, específicas (c
   // Sort proposals by score DESC (best performing first)
   proposals.sort((a, b) => (b.score ?? 50) - (a.score ?? 50));
 
+  // Drop "pausar" propostas cujo conjunto pai não está ACTIVE — pausar um ad
+  // que já não entrega (conjunto PAUSED/ARCHIVED/DELETED) é no-op confuso. O
+  // diagnóstico do Claude às vezes flagra esse caso mas insiste em pausar;
+  // filtramos aqui para limpar a fila de ações do relatório.
+  const adsetStatusMap = new Map(adsetData.map(a => [a.adset_id, a.status]));
+  const proposalsClean = proposals.filter(p => {
+    if (p.verdict !== "pausar") return true;
+    const ad = adMetricsMap.get(p.ad_id);
+    if (!ad) return true; // sem info do ad, manter conservador
+    const adsetStatus = adsetStatusMap.get(ad.adset_id);
+    if (adsetStatus && adsetStatus !== "ACTIVE") return false; // pai já não-ativo
+    return true;
+  });
+
   return {
     client_slug: client.slug,
     analyzed_at: now_iso,
-    proposals,
+    proposals: proposalsClean,
     alerts: (parsed.alerts ?? []).map(a => ({ ...a, id: randomUUID() })),
     summary_text: parsed.summary_text || defaultSummary,
     plano_de_acao: parsed.plano_de_acao ?? [],
