@@ -37,23 +37,23 @@ export default function ClientSelector() {
 
   return (
     <div className="flex items-center gap-2">
-      <span className="text-white/80 text-sm font-medium hidden sm:block">
+      <span className="text-zinc-400 text-sm font-medium hidden sm:block">
         Cliente:
       </span>
       <select
         value={selectedClient?.slug ?? ""}
         onChange={handleChange}
         disabled={loading}
-        className="bg-white/10 text-white border border-white/20 rounded-lg px-3 py-1.5 text-sm
-                   focus:outline-none focus:ring-2 focus:ring-white/30
-                   hover:bg-white/20 transition-colors cursor-pointer
+        className="bg-[#18181b] text-zinc-100 border border-[#1c1c20] rounded-lg px-3 py-1.5 text-sm
+                   focus:outline-none focus:ring-2 focus:ring-violet-500/40
+                   hover:bg-[#27272a] transition-colors cursor-pointer
                    disabled:opacity-50 min-w-[160px]"
       >
-        <option value="" className="text-gray-800 bg-white">
+        <option value="" className="text-zinc-100 bg-[#18181b]">
           {loading ? "Carregando..." : "Selecionar cliente"}
         </option>
         {clients.map((c: ClientPublic) => (
-          <option key={c.slug} value={c.slug} className="text-gray-800 bg-white">
+          <option key={c.slug} value={c.slug} className="text-zinc-100 bg-[#18181b]">
             {c.nome} {!c.ativo ? "(inativo)" : ""}
           </option>
         ))}

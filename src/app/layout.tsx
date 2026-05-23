@@ -20,7 +20,7 @@ export default function RootLayout({
         <AppProvider>
           <AuthGuard>
             <NavbarWrapper />
-            <main className="min-h-screen bg-[#f0f2f5]">{children}</main>
+            <main className="min-h-screen bg-[#050505]">{children}</main>
           </AuthGuard>
         </AppProvider>
       </body>
