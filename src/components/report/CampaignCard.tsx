@@ -7,13 +7,26 @@ const verdictTone: Record<CampaignAnalysis["verdict"], { label: string; cls: str
   pausar: { label: "PAUSAR", cls: "bg-rose-500/15 text-rose-300 border border-rose-500/30" },
 };
 
+const papelAdTone: Record<string, { label: string; cls: string }> = {
+  manter: { label: "MANTER", cls: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" },
+  escalar: { label: "ESCALAR", cls: "bg-emerald-500/25 text-emerald-200 border-emerald-500/40" },
+  pausar: { label: "PAUSAR", cls: "bg-rose-500/15 text-rose-300 border-rose-500/30" },
+  substituir: { label: "SUBSTITUIR", cls: "bg-violet-500/15 text-violet-300 border-violet-500/30" },
+  testar: { label: "TESTAR", cls: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
+};
+
+const papelPublicoTone: Record<string, { label: string; cls: string }> = {
+  manter: { label: "MANTER", cls: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" },
+  trocar: { label: "TROCAR", cls: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
+};
+
 const fmtBRL = (n: number) =>
   n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 
 /**
  * Card de campanha estilo Magazan (dark premium).
- * 3 colunas: BOM / RUIM / MUDAR, depois ações dos ads dessa campanha,
- * e quando verdict="substituir", spec da nova estrutura proposta.
+ * Seções: BOM/RUIM/MUDAR · Anúncios (com papel explícito) · Públicos
+ * (manter/trocar) · Ações dos ads · Nova estrutura quando substituir.
  */
 export default function CampaignCard({
   analysis,
@@ -27,6 +40,8 @@ export default function CampaignCard({
   renderProposal?: (p: Proposal) => React.ReactNode;
 }) {
   const v = verdictTone[analysis.verdict];
+  const anuncios = analysis.anuncios ?? [];
+  const publicos = analysis.publicos ?? [];
 
   return (
     <div className="bg-[#18181b] border border-[#1c1c20] rounded-2xl overflow-hidden">
@@ -57,11 +72,73 @@ export default function CampaignCard({
         <Col eyebrow="MUDAR" colorCls="text-[#fcd34d]" items={analysis.o_que_mudar} />
       </div>
 
-      {/* Ações dos ads desta campanha (preserva interatividade) */}
+      {/* Anúncios da campanha — explicita o papel de cada ad */}
+      {anuncios.length > 0 && (
+        <div className="px-5 py-4 border-t border-[#1c1c20] space-y-2.5">
+          <p className="text-[10px] tracking-[0.22em] uppercase text-zinc-500 font-medium">
+            Anúncios da campanha ({anuncios.length})
+          </p>
+          <ul className="space-y-1.5">
+            {anuncios.map((a) => {
+              const tone = papelAdTone[a.papel] ?? papelAdTone.manter;
+              return (
+                <li key={a.ad_id} className="flex items-start gap-2 text-xs">
+                  <span className={`shrink-0 text-[9px] tracking-[0.12em] font-bold uppercase px-1.5 py-0.5 rounded border ${tone.cls}`}>
+                    {tone.label}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-zinc-200 font-semibold truncate">{a.ad_name}</p>
+                    <p className="text-zinc-400 leading-snug">{a.motivo}</p>
+                  </div>
+                  {typeof a.score === "number" && (
+                    <span className="shrink-0 text-[10px] font-mono text-zinc-500 tabular-nums">{a.score}</span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {/* Públicos da campanha — manter ou trocar (com substituto especificado) */}
+      {publicos.length > 0 && (
+        <div className="px-5 py-4 border-t border-[#1c1c20] space-y-2.5">
+          <p className="text-[10px] tracking-[0.22em] uppercase text-zinc-500 font-medium">
+            Públicos da campanha ({publicos.length})
+          </p>
+          <ul className="space-y-1.5">
+            {publicos.map((p) => {
+              const tone = papelPublicoTone[p.papel] ?? papelPublicoTone.manter;
+              return (
+                <li key={p.adset_id} className="text-xs space-y-1">
+                  <div className="flex items-start gap-2">
+                    <span className={`shrink-0 text-[9px] tracking-[0.12em] font-bold uppercase px-1.5 py-0.5 rounded border ${tone.cls}`}>
+                      {tone.label}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-zinc-200 font-semibold truncate">{p.adset_name}</p>
+                      <p className="text-zinc-400 leading-snug">{p.motivo}</p>
+                    </div>
+                  </div>
+                  {p.papel === "trocar" && p.substituir_por && (
+                    <div className="ml-7 mt-1 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 space-y-0.5">
+                      <p className="text-[10px] tracking-[0.18em] uppercase text-amber-300 font-medium">→ Substituir por</p>
+                      <p className="text-zinc-200">{p.substituir_por.targeting_summary}</p>
+                      <p className="text-zinc-400 italic">{p.substituir_por.racional}</p>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {/* Ações executáveis (botões aprovar/pausar/escalar — preserva interatividade) */}
       {proposals.length > 0 && renderProposal && (
         <div className="px-5 py-4 border-t border-[#1c1c20] space-y-2.5">
           <p className="text-[10px] tracking-[0.22em] uppercase text-zinc-500 font-medium">
-            Ações nos anúncios ({proposals.length})
+            Ações executáveis ({proposals.length})
           </p>
           <div className="space-y-2">
             {proposals.map(p => (
@@ -101,6 +178,33 @@ export default function CampaignCard({
                       <p className="text-zinc-400 mt-0.5">{a.targeting_summary}</p>
                       {a.daily_budget_cents !== undefined && (
                         <p className="text-zinc-500 mt-0.5 font-mono">{fmtBRL(a.daily_budget_cents / 100)}/dia</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {analysis.nova_estrutura.ads && analysis.nova_estrutura.ads.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-[10px] tracking-[0.22em] uppercase text-zinc-500 font-medium">
+                  Anúncios novos ({analysis.nova_estrutura.ads.length})
+                </p>
+                <div className="space-y-1.5">
+                  {analysis.nova_estrutura.ads.map((ad, i) => (
+                    <div key={i} className="bg-[#18181b] border border-[#1c1c20] rounded-lg px-3 py-2 text-xs space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-zinc-200 font-semibold truncate">{ad.nome_proposto}</p>
+                        {ad.referencia_ad_id && (
+                          <span className="shrink-0 text-[10px] font-mono text-zinc-500">ref: {ad.referencia_ad_id.slice(-6)}</span>
+                        )}
+                      </div>
+                      <div className="space-y-0.5 pl-2 border-l-2 border-[#1c1c20]">
+                        <p className="text-zinc-300"><span className="text-zinc-500">headline:</span> {ad.copy.headline}</p>
+                        <p className="text-zinc-300"><span className="text-zinc-500">texto:</span> {ad.copy.texto}</p>
+                        <p className="text-zinc-400 font-mono"><span className="text-zinc-500">cta:</span> {ad.copy.cta}</p>
+                      </div>
+                      {ad.notas_visual && (
+                        <p className="text-amber-300/80 italic pt-1">visual: {ad.notas_visual}</p>
                       )}
                     </div>
                   ))}

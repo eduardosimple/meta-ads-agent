@@ -1,10 +1,39 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { getAdInsights, getCampaignData, getAdsetData, getCustomAudiences } from "@/lib/meta-api";
+import { getRecentReports } from "@/lib/reports-store";
 import { getGoogleAdGroupInsights, normalizeCustomerId } from "@/lib/google-ads-api";
 import type { Client } from "@/types/client";
 import type { AdMetrics, GoogleAdMetrics, AnalysisResult, Proposal, Alert, ActionItem, CampaignAnalysis } from "@/types/metrics";
 import type { CustomAudience } from "@/lib/meta-api";
 import { randomUUID } from "crypto";
+
+/** Monta um bloco compacto de "HISTÓRICO" a partir dos últimos N reports do
+ * cliente, pra Claude fundamentar verdicts atuais ("já vimos esse público
+ * saturar há 3 dias", "essa campanha foi pausada após R$X sem conversão"). */
+async function buildHistoricalContext(slug: string, todayISO: string): Promise<string> {
+  let recent;
+  try {
+    recent = await getRecentReports(slug, 8); // 7 dias + hoje
+  } catch {
+    return "";
+  }
+  // Excluir o report do dia (estamos refazendo) e pegar até 7 dias anteriores
+  const past = recent.filter(r => r.date !== todayISO).slice(0, 7);
+  if (past.length === 0) return "";
+
+  const lines: string[] = [];
+  for (const r of past) {
+    const m = r.meta;
+    if (!m) continue;
+    const verdicts = (m.campaigns_analysis ?? []).map(c => `${c.campaign_name.slice(0, 40)}=${c.verdict}`).slice(0, 5).join(" · ");
+    const spend = (m.spend_7d ?? 0).toFixed(0);
+    const leads = m.leads_7d ?? 0;
+    const summary = (m.summary_text ?? "").replace(/\s+/g, " ").slice(0, 140);
+    lines.push(`- ${r.date}: gasto7d=R$${spend} leads=${leads}${verdicts ? " | " + verdicts : ""}${summary ? " | " + summary : ""}`);
+  }
+  if (lines.length === 0) return "";
+  return `\n\nHISTÓRICO RECENTE (últimos ${lines.length} dias — use para fundamentar verdicts atuais, mencione padrões repetidos):\n${lines.join("\n")}\nInstrução: se algum padrão deste histórico contradiz uma proposta sua (ex: público já saturou, campanha já foi pausada e voltou pior), MENCIONE explicitamente em pontos_ruins ou o_que_mudar.`;
+}
 
 function compactTargeting(t: Record<string, unknown>, knownAudiences: CustomAudience[]): string {
   const parts: string[] = [];
@@ -54,18 +83,20 @@ export async function analyzeMetaAds(client: Client, dateFrom: string, dateTo: s
     plano_de_acao: [],
   });
 
-  // Fetch all levels + custom audiences in parallel
-  const [adMetricsRes, campaignDataRes, adsetDataRes, customAudiencesRes] = await Promise.allSettled([
+  // Fetch all levels + custom audiences + histórico em paralelo
+  const [adMetricsRes, campaignDataRes, adsetDataRes, customAudiencesRes, historicoRes] = await Promise.allSettled([
     getAdInsights(client.meta.ad_account_id, client.meta.access_token, dateFrom, dateTo),
     getCampaignData(client.meta.ad_account_id, client.meta.access_token, dateFrom, dateTo),
     getAdsetData(client.meta.ad_account_id, client.meta.access_token, dateFrom, dateTo),
     getCustomAudiences(client.meta.ad_account_id, client.meta.access_token),
+    buildHistoricalContext(client.slug, dateTo),
   ]);
 
   const adMetrics: AdMetrics[] = adMetricsRes.status === "fulfilled" ? adMetricsRes.value : [];
   const campaignData = campaignDataRes.status === "fulfilled" ? campaignDataRes.value : [];
   const adsetData = adsetDataRes.status === "fulfilled" ? adsetDataRes.value : [];
   const customAudiences = customAudiencesRes.status === "fulfilled" ? customAudiencesRes.value : [];
+  const historicoText: string = historicoRes.status === "fulfilled" ? historicoRes.value : "";
 
   // Root cause fix: NÃO mascarar erro de fetch da Meta como "sem dados".
   // Se as buscas críticas (ad-insights + campanha) FALHARAM (rejected),
@@ -162,7 +193,7 @@ export async function analyzeMetaAds(client: Client, dateFrom: string, dateTo: s
     ? `\nTIER PADRÃO (gasto 7d R$${recentSpend.toFixed(0)}): seguir benchmarks normalmente, justificar verdicts com números do período.`
     : `\nTIER LEVE (gasto 7d R$${recentSpend.toFixed(0)} — conta pequena): sugestões diretas, evite over-engineering.`;
 
-  const systemPrompt = `Especialista Meta Ads (metodologia 12345 Pedro Sobral) — segmento: ${client.contexto.segmento}, praça: ${client.contexto.cidade}/${client.contexto.estado}.${orcamentoMensal}${empreendimentosText}${tierContext}
+  const systemPrompt = `Especialista Meta Ads (metodologia 12345 Pedro Sobral) — segmento: ${client.contexto.segmento}, praça: ${client.contexto.cidade}/${client.contexto.estado}.${orcamentoMensal}${empreendimentosText}${tierContext}${historicoText}
 
 METODOLOGIA 12345 — siga SEMPRE essa ordem de otimização:
 1.ORÇAMENTOS: resultado bom→escalar 20-30% | ruim→pausar. Escalar só com R$50+ gasto e dentro do orçamento mensal.
@@ -188,9 +219,11 @@ Antes de listar proposals por anúncio, PREENCHA campaigns_analysis com UMA entr
 - pontos_bons: array de strings curtas com o que está funcionando, sempre com número (ex: "CPM R$11 dentro do benchmark").
 - pontos_ruins: array com o que está ruim e por quê, SEMPRE com NÚMEROS (ex: "CTR 0,5% bem abaixo do mínimo 0,8%").
 - o_que_mudar: array com recomendações CONCRETAS e EXECUTÁVEIS (ex: "Pausar AD12 e subir variação com gancho de urgência baseado em AD06").
-- nova_estrutura: SOMENTE quando verdict="substituir" — {nome, objetivo, daily_budget_cents, adsets:[{nome,targeting_summary,daily_budget_cents}], notas}.
+- anuncios: OBRIGATÓRIO — array com TODOS os anúncios DESSA campanha presentes nos dados (mesmo os ok). Cada entrada {ad_id, ad_name, papel, motivo}: papel∈"manter"(ok, deixar)|"escalar"(perf top, aumentar)|"pausar"(perf ruim, parar)|"substituir"(pausar e subir variação)|"testar"(rodar paralelo pra validar). Motivo cita números. Isto torna explícito "qual usar/pausar/substituir" — não deixe genérico.
+- publicos: OBRIGATÓRIO — array com TODOS os conjuntos (adsets) DESSA campanha. Cada entrada {adset_id, adset_name, papel, motivo}: papel∈"manter"|"trocar". Se papel="trocar", PREENCHA substituir_por:{targeting_summary, racional} com a especificação do novo público (não modifica o atual, cria novo conjunto pausado).
+- nova_estrutura: SOMENTE quando verdict="substituir" — {nome, objetivo, daily_budget_cents, adsets:[{nome,targeting_summary,daily_budget_cents}], ads:[{nome_proposto, referencia_ad_id?, copy:{headline,texto,cta}, notas_visual?}], notas}. Inclua ads referenciando o vencedor relacionado da conta (referencia_ad_id) + copy nova baseada nele.
 DEPOIS, derive proposals[] (1 por anúncio com ação) consistente com a análise da campanha pai.
-Campanhas PAUSED/ARCHIVED não precisam estar em campaigns_analysis a menos que sejam alvo de substituição.`;
+Campanhas PAUSED/ARCHIVED não precisam estar em campaigns_analysis (mas o histórico recente delas no HISTÓRICO acima é útil pra fundamentar decisões).`;
 
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
@@ -247,6 +280,23 @@ Campanhas PAUSED/ARCHIVED não precisam estar em campaigns_analysis a menos que 
             pontos_bons: { type: "array", items: { type: "string" } },
             pontos_ruins: { type: "array", items: { type: "string" } },
             o_que_mudar: { type: "array", items: { type: "string" } },
+            anuncios: { type: "array", items: { type: "object", properties: {
+              ad_id: { type: "string" },
+              ad_name: { type: "string" },
+              papel: { type: "string", enum: ["manter","escalar","pausar","substituir","testar"] },
+              motivo: { type: "string" },
+              score: { type: "number" },
+            }, required: ["ad_id","ad_name","papel","motivo"] } },
+            publicos: { type: "array", items: { type: "object", properties: {
+              adset_id: { type: "string" },
+              adset_name: { type: "string" },
+              papel: { type: "string", enum: ["manter","trocar"] },
+              motivo: { type: "string" },
+              substituir_por: { type: "object", properties: {
+                targeting_summary: { type: "string" },
+                racional: { type: "string" },
+              }, required: ["targeting_summary","racional"] },
+            }, required: ["adset_id","adset_name","papel","motivo"] } },
             nova_estrutura: { type: "object", properties: {
               nome: { type: "string" },
               objetivo: { type: "string" },
@@ -256,9 +306,19 @@ Campanhas PAUSED/ARCHIVED não precisam estar em campaigns_analysis a menos que 
                 targeting_summary: { type: "string" },
                 daily_budget_cents: { type: "number" },
               }, required: ["nome","targeting_summary"] } },
+              ads: { type: "array", items: { type: "object", properties: {
+                nome_proposto: { type: "string" },
+                referencia_ad_id: { type: "string" },
+                copy: { type: "object", properties: {
+                  headline: { type: "string" },
+                  texto: { type: "string" },
+                  cta: { type: "string" },
+                }, required: ["headline","texto","cta"] },
+                notas_visual: { type: "string" },
+              }, required: ["nome_proposto","copy"] } },
               notas: { type: "string" },
             }, required: ["nome","objetivo","daily_budget_cents","adsets"] },
-          }, required: ["campaign_id","campaign_name","verdict","pontos_bons","pontos_ruins","o_que_mudar"] } },
+          }, required: ["campaign_id","campaign_name","verdict","pontos_bons","pontos_ruins","o_que_mudar","anuncios","publicos"] } },
         },
         required: ["proposals","alerts","summary_text","plano_de_acao","campaigns_analysis"],
       },

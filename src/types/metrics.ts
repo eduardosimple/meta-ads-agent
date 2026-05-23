@@ -107,12 +107,42 @@ export interface NovaCampanhaAdset {
   daily_budget_cents?: number;
 }
 
+export interface NovaCampanhaAd {
+  nome_proposto: string;
+  /** Ad existente que serve de referência visual/copy (id no Meta). */
+  referencia_ad_id?: string;
+  copy: { headline: string; texto: string; cta: string };
+  /** Notas pro design: render/tom/branding/elementos visuais a usar. */
+  notas_visual?: string;
+}
+
 export interface NovaCampanhaSpec {
   nome: string;
   objetivo: string;
   daily_budget_cents: number;
   adsets: NovaCampanhaAdset[];
+  /** Ads da nova campanha — quando substituir, monta também o que entra. */
+  ads?: NovaCampanhaAd[];
   notas?: string;
+}
+
+/** Anúncio dentro de uma campanha com seu PAPEL (o que fazer com ele). */
+export interface CampaignAdRole {
+  ad_id: string;
+  ad_name: string;
+  papel: "manter" | "escalar" | "pausar" | "substituir" | "testar";
+  motivo: string;
+  score?: number;
+}
+
+/** Público (adset) dentro de uma campanha com o PAPEL (manter ou trocar). */
+export interface CampaignPublicoRole {
+  adset_id: string;
+  adset_name: string;
+  papel: "manter" | "trocar";
+  motivo: string;
+  /** Quando papel="trocar", a especificação do público substituto. */
+  substituir_por?: { targeting_summary: string; racional: string };
 }
 
 export interface CampaignAnalysis {
@@ -122,6 +152,11 @@ export interface CampaignAnalysis {
   pontos_bons: string[];
   pontos_ruins: string[];
   o_que_mudar: string[];
+  /** Lista explícita de cada ad da campanha com seu papel — torna óbvio
+   * "qual usar / qual pausar / qual substituir" dentro da campanha. */
+  anuncios?: CampaignAdRole[];
+  /** Lista explícita de públicos (adsets) com manter/trocar e o substituto. */
+  publicos?: CampaignPublicoRole[];
   nova_estrutura?: NovaCampanhaSpec;
 }
 
