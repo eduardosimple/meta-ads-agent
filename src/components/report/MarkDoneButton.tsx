@@ -46,12 +46,12 @@ export default function MarkDoneButton({ clientSlug, date, adId, platform, repor
     }
   }
 
-  if (done) return <p className="text-xs text-green-600 font-medium mt-1">{tipoLabel[ajusteTipo] ?? "Ajuste confirmado."}</p>;
-  if (ignored) return <p className="text-xs text-gray-400 mt-1">Ignorado.</p>;
+  if (done) return <p className="text-xs text-emerald-400 font-medium mt-1">{tipoLabel[ajusteTipo] ?? "Ajuste confirmado."}</p>;
+  if (ignored) return <p className="text-xs text-zinc-500 mt-1">Ignorado.</p>;
 
   return (
     <div className="mt-2 space-y-1">
-      {error && <p className="text-xs text-red-500">{error}</p>}
+      {error && <p className="text-xs text-rose-400">{error}</p>}
       <div className="flex gap-2">
         <button
           onClick={() => patch("approved")}
@@ -63,7 +63,7 @@ export default function MarkDoneButton({ clientSlug, date, adId, platform, repor
         <button
           onClick={() => patch("rejected")}
           disabled={loading}
-          className="px-3 py-2 rounded-xl text-xs font-medium text-gray-500 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 transition-colors"
+          className="px-3 py-2 rounded-xl text-xs font-medium text-zinc-400 bg-zinc-800/60 hover:bg-zinc-700/60 disabled:opacity-50 transition-colors"
         >
           Ignorar
         </button>

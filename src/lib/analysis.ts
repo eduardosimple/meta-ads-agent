@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getAdInsights, getCampaignData, getAdsetData, getCustomAudiences } from "@/lib/meta-api";
 import { getGoogleAdGroupInsights, normalizeCustomerId } from "@/lib/google-ads-api";
 import type { Client } from "@/types/client";
-import type { AdMetrics, GoogleAdMetrics, AnalysisResult, Proposal, Alert, ActionItem } from "@/types/metrics";
+import type { AdMetrics, GoogleAdMetrics, AnalysisResult, Proposal, Alert, ActionItem, CampaignAnalysis } from "@/types/metrics";
 import type { CustomAudience } from "@/lib/meta-api";
 import { randomUUID } from "crypto";
 
@@ -137,7 +137,32 @@ export async function analyzeMetaAds(client: Client, dateFrom: string, dateTo: s
     ? `\nPÚBLICOS DISPONÍVEIS (use IDs em create_adset):\n${customAudiences.slice(0, 15).map(a => `[${a.id}] ${a.name}`).join("\n")}`
     : "";
 
-  const systemPrompt = `Especialista Meta Ads (metodologia 12345 Pedro Sobral) — segmento: ${client.contexto.segmento}, praça: ${client.contexto.cidade}/${client.contexto.estado}.${orcamentoMensal}
+  // Mapa de empreendimentos/produtos — Claude usa para casar ad_name → produto
+  // e NÃO generalizar pela cidade do cliente (ex: famex tem Turmalina em Pato
+  // Branco mesmo sendo de Chapecó). Sem isso, sugestões viram genéricas.
+  const empreendimentos = client.contexto.empreendimentos ?? [];
+  const empreendimentosText = empreendimentos.length > 0
+    ? `\nEMPREENDIMENTOS/PRODUTOS DO CLIENTE — case o nome do anúncio com o produto e use a localização/tipo CORRETOS (NÃO assuma que tudo é em ${client.contexto.cidade}):\n${empreendimentos.map(e => `- ${e.nome} | ${e.localizacao}${e.tipo ? " | " + e.tipo : ""}${e.status ? " | " + e.status : ""}${e.observacoes ? " | " + e.observacoes : ""}`).join("\n")}\nAo propor copy/criativo/diagnóstico, SEMPRE referencie a localização e o tipo do empreendimento correto detectado no nome do anúncio. Se o nome do anúncio não casar com nenhum produto da lista, diga isso explicitamente em vez de chutar.`
+    : "";
+
+  // TIER por gasto recente — eleva rigor da análise para contas grandes
+  // (FAMEX gasta ~R$30k/mês = ~R$7k/7d). Conservador onde dói mais.
+  const recentSpend = adMetrics.reduce((s, m) => s + m.spend, 0)
+    || campaignData.reduce((s, c) => s + c.spend, 0);
+  const tier: "leve" | "padrao" | "rigoroso" =
+    recentSpend > 3000 ? "rigoroso" : recentSpend > 500 ? "padrao" : "leve";
+  const tierContext = tier === "rigoroso"
+    ? `\nTIER RIGOROSO (gasto 7d R$${recentSpend.toFixed(0)} — conta grande, baixa tolerância a erro):
+- Toda decisão de pausar/escalar OBRIGA evidência: mínimo R$30 gasto E ≥4 dias rodando.
+- Quando incerto entre "manter" e "ajustar", prefira "manter" (vida-mais-vida > experimentar-e-quebrar).
+- "substituir" campanha só com evidência grosseira: campanha inteira sem conversão e gasto >R$200.
+- Justificativa em pontos_ruins/o_que_mudar DEVE citar números específicos (R$, CTR, CPL, dias) — nunca prosa vaga.
+- Rebalanceio de público SEMPRE em conjunto novo; jamais editar conjunto que está convertendo.`
+    : tier === "padrao"
+    ? `\nTIER PADRÃO (gasto 7d R$${recentSpend.toFixed(0)}): seguir benchmarks normalmente, justificar verdicts com números do período.`
+    : `\nTIER LEVE (gasto 7d R$${recentSpend.toFixed(0)} — conta pequena): sugestões diretas, evite over-engineering.`;
+
+  const systemPrompt = `Especialista Meta Ads (metodologia 12345 Pedro Sobral) — segmento: ${client.contexto.segmento}, praça: ${client.contexto.cidade}/${client.contexto.estado}.${orcamentoMensal}${empreendimentosText}${tierContext}
 
 METODOLOGIA 12345 — siga SEMPRE essa ordem de otimização:
 1.ORÇAMENTOS: resultado bom→escalar 20-30% | ruim→pausar. Escalar só com R$50+ gasto e dentro do orçamento mensal.
@@ -155,7 +180,17 @@ ajuste_tipo: OBRIGATÓRIO para ajustar — "criativo"(copy/gancho/visual) | "pub
 copy_sugerida: SOMENTE quando ajuste_tipo="criativo" ou verdict="testar_variacao". versao_a=criativo corrigido, versao_b=variação diferente. headline≤40ch, texto≤125ch, cta curto.
 IMPORTANTE create_adset: targeting=objeto JSON completo válido Meta API. Use IDs dos públicos disponíveis. Conjunto criado PAUSADO.
 summary_text: OBRIGATÓRIO — 2-3 frases: gasto total, CTR médio, leads/WA, pontos críticos.
-plano_de_acao: máx 5 ações priorizadas, seguindo ordem 12345, específicas (cite IDs).`;
+plano_de_acao: máx 5 ações priorizadas, seguindo ordem 12345, específicas (cite IDs).
+
+ANÁLISE POR CAMPANHA — OBRIGATÓRIA:
+Antes de listar proposals por anúncio, PREENCHA campaigns_analysis com UMA entrada por campanha ATIVA presente nos dados. Para cada uma:
+- verdict: "manter"(boa, sem ação) | "ajustar"(mudar criativo/público/conjunto dentro dela) | "substituir"(criar nova trocando) | "pausar"(parar).
+- pontos_bons: array de strings curtas com o que está funcionando, sempre com número (ex: "CPM R$11 dentro do benchmark").
+- pontos_ruins: array com o que está ruim e por quê, SEMPRE com NÚMEROS (ex: "CTR 0,5% bem abaixo do mínimo 0,8%").
+- o_que_mudar: array com recomendações CONCRETAS e EXECUTÁVEIS (ex: "Pausar AD12 e subir variação com gancho de urgência baseado em AD06").
+- nova_estrutura: SOMENTE quando verdict="substituir" — {nome, objetivo, daily_budget_cents, adsets:[{nome,targeting_summary,daily_budget_cents}], notas}.
+DEPOIS, derive proposals[] (1 por anúncio com ação) consistente com a análise da campanha pai.
+Campanhas PAUSED/ARCHIVED não precisam estar em campaigns_analysis a menos que sejam alvo de substituição.`;
 
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
@@ -205,8 +240,27 @@ plano_de_acao: máx 5 ações priorizadas, seguindo ordem 12345, específicas (c
             impacto: { type: "string", enum: ["alto","medio","baixo"] },
             esforco: { type: "string", enum: ["simples","medio","complexo"] },
           }, required: ["prioridade","titulo","descricao","nivel","impacto","esforco"] } },
+          campaigns_analysis: { type: "array", items: { type: "object", properties: {
+            campaign_id: { type: "string" },
+            campaign_name: { type: "string" },
+            verdict: { type: "string", enum: ["manter","ajustar","substituir","pausar"] },
+            pontos_bons: { type: "array", items: { type: "string" } },
+            pontos_ruins: { type: "array", items: { type: "string" } },
+            o_que_mudar: { type: "array", items: { type: "string" } },
+            nova_estrutura: { type: "object", properties: {
+              nome: { type: "string" },
+              objetivo: { type: "string" },
+              daily_budget_cents: { type: "number" },
+              adsets: { type: "array", items: { type: "object", properties: {
+                nome: { type: "string" },
+                targeting_summary: { type: "string" },
+                daily_budget_cents: { type: "number" },
+              }, required: ["nome","targeting_summary"] } },
+              notas: { type: "string" },
+            }, required: ["nome","objetivo","daily_budget_cents","adsets"] },
+          }, required: ["campaign_id","campaign_name","verdict","pontos_bons","pontos_ruins","o_que_mudar"] } },
         },
-        required: ["proposals","alerts","summary_text","plano_de_acao"],
+        required: ["proposals","alerts","summary_text","plano_de_acao","campaigns_analysis"],
       },
     }],
     tool_choice: { type: "tool", name: "retornar_analise" },
@@ -221,6 +275,7 @@ plano_de_acao: máx 5 ações priorizadas, seguindo ordem 12345, específicas (c
     alerts: Array<Omit<Alert, "id">>;
     summary_text: string;
     plano_de_acao: ActionItem[];
+    campaigns_analysis?: CampaignAnalysis[];
   };
 
   const now_iso = new Date().toISOString();
@@ -302,6 +357,7 @@ plano_de_acao: máx 5 ações priorizadas, seguindo ordem 12345, específicas (c
     alerts: (parsed.alerts ?? []).map(a => ({ ...a, id: randomUUID() })),
     summary_text: parsed.summary_text || defaultSummary,
     plano_de_acao: parsed.plano_de_acao ?? [],
+    campaigns_analysis: parsed.campaigns_analysis ?? [],
     spend_7d: totalSpend,
     leads_7d: totalLeads,
     whatsapp_7d: totalWhatsapp,

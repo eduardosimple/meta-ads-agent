@@ -101,6 +101,30 @@ export interface ActionItem {
   esforco: "simples" | "medio" | "complexo";
 }
 
+export interface NovaCampanhaAdset {
+  nome: string;
+  targeting_summary: string;
+  daily_budget_cents?: number;
+}
+
+export interface NovaCampanhaSpec {
+  nome: string;
+  objetivo: string;
+  daily_budget_cents: number;
+  adsets: NovaCampanhaAdset[];
+  notas?: string;
+}
+
+export interface CampaignAnalysis {
+  campaign_id: string;
+  campaign_name: string;
+  verdict: "manter" | "ajustar" | "substituir" | "pausar";
+  pontos_bons: string[];
+  pontos_ruins: string[];
+  o_que_mudar: string[];
+  nova_estrutura?: NovaCampanhaSpec;
+}
+
 export interface AnalysisResult {
   client_slug: string;
   analyzed_at: string;
@@ -108,6 +132,9 @@ export interface AnalysisResult {
   alerts: Alert[];
   summary_text: string;
   plano_de_acao?: ActionItem[];
+  /** Análise estruturada por campanha (gerada pelo analyzer). Opcional para
+   * compatibilidade com relatórios antigos — UI cai no view flat se ausente. */
+  campaigns_analysis?: CampaignAnalysis[];
   // computed aggregates (populated by analyzeMetaAds / analyzeGoogleAds)
   spend_7d?: number;
   leads_7d?: number;

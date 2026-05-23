@@ -73,7 +73,7 @@ export default function ApprovalCard({
 
   if (status === "approved") {
     return (
-      <div className="mt-3 rounded-xl bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-700">
+      <div className="mt-3 rounded-xl bg-green-50 border border-green-200 px-4 py-3 text-sm text-emerald-300">
         Aprovado e publicado. {result}
       </div>
     );
@@ -81,14 +81,14 @@ export default function ApprovalCard({
 
   if (status === "rejected") {
     return (
-      <div className="mt-3 rounded-xl bg-gray-50 border border-gray-100 px-4 py-2.5 text-xs text-gray-400">
+      <div className="mt-3 rounded-xl bg-[#0f0f12] border border-[#1c1c20] px-4 py-2.5 text-xs text-zinc-500">
         Criativo rejeitado.
       </div>
     );
   }
 
   return (
-    <div className="mt-3 rounded-xl border border-blue-100 bg-white overflow-hidden">
+    <div className="mt-3 rounded-xl border border-blue-100 bg-[#18181b] overflow-hidden">
       {imageBase64 && (
         <img
           src={`data:image/png;base64,${imageBase64}`}
@@ -97,7 +97,7 @@ export default function ApprovalCard({
         />
       )}
       <div className="p-4 space-y-3">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Copy sugerida</p>
+        <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Copy sugerida</p>
 
         {/* Version tabs */}
         <div className="flex gap-2">
@@ -106,7 +106,7 @@ export default function ApprovalCard({
               key={v}
               onClick={() => setSelected(v)}
               className={`flex-1 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                selected === v ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                selected === v ? "bg-blue-600 text-white" : "bg-zinc-800/60 text-zinc-300 hover:bg-zinc-700/60"
               }`}
             >
               Versão {v.toUpperCase()}
@@ -115,12 +115,12 @@ export default function ApprovalCard({
         </div>
 
         {/* Copy */}
-        <div className="space-y-1.5 text-sm bg-gray-50 rounded-lg p-3">
-          <p className="font-semibold text-gray-800">{copy.headline}</p>
-          <p className="text-gray-600 text-xs">{copy.texto}</p>
+        <div className="space-y-1.5 text-sm bg-[#0f0f12] rounded-lg p-3">
+          <p className="font-semibold text-zinc-100">{copy.headline}</p>
+          <p className="text-zinc-300 text-xs">{copy.texto}</p>
         </div>
 
-        {result && <p className="text-xs text-red-500">{result}</p>}
+        {result && <p className="text-xs text-rose-400">{result}</p>}
 
         {/* Actions */}
         <div className="flex gap-2 pt-1">
@@ -134,7 +134,7 @@ export default function ApprovalCard({
           <button
             onClick={reject}
             disabled={loading}
-            className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-500 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 transition-colors"
+            className="px-4 py-2.5 rounded-xl text-sm font-medium text-zinc-400 bg-zinc-800/60 hover:bg-zinc-700/60 disabled:opacity-50 transition-colors"
           >
             Rejeitar
           </button>

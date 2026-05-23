@@ -41,7 +41,7 @@ export default function GenerateCopyButton({ clientSlug, date, adId, platform, r
 
   return (
     <div className="mt-2 space-y-1">
-      {error && <p className="text-xs text-red-500">{error}</p>}
+      {error && <p className="text-xs text-rose-400">{error}</p>}
       <button
         onClick={generate}
         disabled={loading}

@@ -25,10 +25,10 @@ export default function TargetingChangeCard({
   const [result, setResult] = useState(initialResultMessage ?? "");
 
   if (status === "approved") {
-    return <p className="text-xs text-green-600 font-medium mt-1">{actionType === "create_adset" ? "Conjunto criado (pausado)" : "Público atualizado"} — {result}</p>;
+    return <p className="text-xs text-emerald-400 font-medium mt-1">{actionType === "create_adset" ? "Conjunto criado (pausado)" : "Público atualizado"} — {result}</p>;
   }
   if (status === "rejected") {
-    return <p className="text-xs text-gray-400 mt-1">Ignorado.</p>;
+    return <p className="text-xs text-zinc-500 mt-1">Ignorado.</p>;
   }
 
   async function execute() {
@@ -74,21 +74,21 @@ export default function TargetingChangeCard({
       </p>
       {adsetNameNew && (
         <div className="flex gap-2 items-start">
-          <span className="text-xs text-gray-400 shrink-0 w-14">Nome:</span>
-          <span className="text-xs text-gray-800 font-mono font-medium">{adsetNameNew}</span>
+          <span className="text-xs text-zinc-500 shrink-0 w-14">Nome:</span>
+          <span className="text-xs text-zinc-100 font-mono font-medium">{adsetNameNew}</span>
         </div>
       )}
       <div className="space-y-1">
         <div className="flex gap-2 items-start">
-          <span className="text-xs text-gray-400 shrink-0 w-14">Atual:</span>
-          <span className="text-xs text-gray-600">{targetingSummaryOld}</span>
+          <span className="text-xs text-zinc-500 shrink-0 w-14">Atual:</span>
+          <span className="text-xs text-zinc-300">{targetingSummaryOld}</span>
         </div>
         <div className="flex gap-2 items-start">
           <span className="text-xs font-medium text-orange-700 shrink-0 w-14">Novo:</span>
-          <span className="text-xs text-gray-800 font-medium">{targetingSummaryNew}</span>
+          <span className="text-xs text-zinc-100 font-medium">{targetingSummaryNew}</span>
         </div>
       </div>
-      {result && <p className="text-xs text-red-500">{result}</p>}
+      {result && <p className="text-xs text-rose-400">{result}</p>}
       <div className="flex gap-2">
         <button
           onClick={execute}
@@ -102,7 +102,7 @@ export default function TargetingChangeCard({
         <button
           onClick={ignore}
           disabled={loading}
-          className="px-3 py-2 rounded-xl text-xs font-medium text-gray-500 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 transition-colors"
+          className="px-3 py-2 rounded-xl text-xs font-medium text-zinc-400 bg-zinc-800/60 hover:bg-zinc-700/60 disabled:opacity-50 transition-colors"
         >
           Ignorar
         </button>

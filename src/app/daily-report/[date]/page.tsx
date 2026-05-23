@@ -9,6 +9,7 @@ import ActionButton from "@/components/report/ActionButton";
 import GenerateCopyButton from "@/components/report/GenerateCopyButton";
 import MarkDoneButton from "@/components/report/MarkDoneButton";
 import TargetingChangeCard from "@/components/report/TargetingChangeCard";
+import CampaignCard from "@/components/report/CampaignCard";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -26,35 +27,32 @@ const verdictLabel: Record<string, string> = {
   escalar: "ESCALAR", manter: "MANTER",
 };
 const verdictTag: Record<string, string> = {
-  pausar: "bg-red-600 text-white",
-  ajustar: "bg-amber-500 text-white",
-  testar_variacao: "bg-violet-600 text-white",
-  escalar: "bg-emerald-600 text-white",
-  manter: "bg-slate-400 text-white",
+  pausar: "bg-rose-500/15 text-rose-300 border border-rose-500/30",
+  ajustar: "bg-amber-500/15 text-amber-300 border border-amber-500/30",
+  testar_variacao: "bg-violet-500/15 text-violet-300 border border-violet-500/30",
+  escalar: "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30",
+  manter: "bg-zinc-500/15 text-zinc-300 border border-zinc-500/30",
 };
-// Quão urgente é cada verdict (menor = mais urgente) — desempate da ordenação
 const verdictUrgency: Record<string, number> = {
   pausar: 0, ajustar: 1, testar_variacao: 2, escalar: 3, manter: 4,
 };
 
 type StatusLevel = "red" | "yellow" | "green";
 
-/** Status do cliente para triagem: vermelho queima dinheiro, amarelo precisa de ajuste, verde ok. */
 function clientStatus(pending: Proposal[]): { level: StatusLevel; dot: string; ring: string; label: string } {
   const hasPausar = pending.some(p => p.verdict === "pausar");
   const hasAdjust = pending.some(p => p.verdict === "ajustar" || p.verdict === "testar_variacao");
-  if (hasPausar) return { level: "red", dot: "bg-red-500", ring: "border-red-200", label: "Crítico" };
-  if (hasAdjust) return { level: "yellow", dot: "bg-amber-400", ring: "border-amber-200", label: "Ajustar" };
-  return { level: "green", dot: "bg-emerald-500", ring: "border-gray-100", label: "Ok" };
+  if (hasPausar) return { level: "red", dot: "bg-rose-500", ring: "border-rose-500/30", label: "Crítico" };
+  if (hasAdjust) return { level: "yellow", dot: "bg-amber-400", ring: "border-amber-500/30", label: "Ajustar" };
+  return { level: "green", dot: "bg-emerald-500", ring: "border-[#1c1c20]", label: "Ok" };
 }
 
-function scoreColor(score: number): { bar: string; text: string; dot: string } {
-  if (score < 40) return { bar: "bg-red-500", text: "text-red-600", dot: "🔴" };
-  if (score < 70) return { bar: "bg-amber-400", text: "text-amber-600", dot: "🟡" };
-  return { bar: "bg-emerald-500", text: "text-emerald-600", dot: "🟢" };
+function scoreColor(score: number) {
+  if (score < 40) return { bar: "bg-rose-500", text: "text-rose-300" };
+  if (score < 70) return { bar: "bg-amber-400", text: "text-amber-300" };
+  return { bar: "bg-emerald-500", text: "text-emerald-300" };
 }
 
-/** Barra de 10 blocos proporcional ao score (0-100), colorida por faixa. */
 function ScoreBar({ score }: { score: number }) {
   const s = Math.max(0, Math.min(100, Math.round(score)));
   const filled = Math.round(s / 10);
@@ -63,14 +61,10 @@ function ScoreBar({ score }: { score: number }) {
     <div className="flex items-center gap-2 shrink-0">
       <div className="flex gap-[2px]" aria-label={`score ${s}`}>
         {Array.from({ length: 10 }).map((_, i) => (
-          <span
-            key={i}
-            className={`w-1.5 h-3.5 rounded-[1px] ${i < filled ? c.bar : "bg-gray-200"}`}
-          />
+          <span key={i} className={`w-1.5 h-3.5 rounded-[1px] ${i < filled ? c.bar : "bg-zinc-800"}`} />
         ))}
       </div>
-      <span className={`text-xs font-bold tabular-nums ${c.text}`}>{s}</span>
-      <span className="text-xs leading-none">{c.dot}</span>
+      <span className={`text-xs font-bold tabular-nums font-mono ${c.text}`}>{s}</span>
     </div>
   );
 }
@@ -90,40 +84,36 @@ function ProposalRow({
   const scaleBudget = p.action.type === "scale_budget" ? p.action : null;
 
   return (
-    <div className="rounded-xl border border-gray-100 bg-white px-3 py-2.5 space-y-1.5">
-      {/* Linha 1: nome + barra de score + selo de ação */}
+    <div className="rounded-xl border border-[#1c1c20] bg-[#0f0f12] px-3 py-2.5 space-y-1.5">
       <div className="flex items-center gap-2">
-        <p className="text-xs font-semibold text-gray-900 flex-1 min-w-0 truncate">{p.ad_name}</p>
+        <p className="text-xs font-semibold text-zinc-100 flex-1 min-w-0 truncate">{p.ad_name}</p>
         <ScoreBar score={pScore(p)} />
       </div>
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] text-gray-400 truncate min-w-0">
+        <p className="text-[11px] text-zinc-500 truncate min-w-0 font-mono">
           {p.campaign_name}{p.adset_name ? ` · ${p.adset_name}` : ""}
         </p>
-        <span className={`shrink-0 text-[10px] tracking-wide px-2 py-0.5 rounded-md font-bold ${verdictTag[p.verdict] ?? "bg-gray-400 text-white"}`}>
+        <span className={`shrink-0 text-[10px] tracking-[0.12em] px-2 py-0.5 rounded-md font-bold ${verdictTag[p.verdict] ?? "bg-zinc-500/15 text-zinc-300 border border-zinc-500/30"}`}>
           {verdictLabel[p.verdict] ?? p.verdict.toUpperCase()}
         </span>
       </div>
-
-      {/* Diagnóstico + métricas */}
-      <p className="text-xs text-gray-600 leading-snug">{p.diagnostico}</p>
+      <p className="text-xs text-zinc-300 leading-snug">{p.diagnostico}</p>
       {p.metricas_problema.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {p.metricas_problema.slice(0, 4).map((m, i) => (
-            <span key={i} className="text-[10px] px-1.5 py-0.5 bg-gray-100 rounded text-gray-500">{m}</span>
+            <span key={i} className="text-[10px] px-1.5 py-0.5 bg-zinc-800/60 border border-zinc-800 rounded text-zinc-400 font-mono">{m}</span>
           ))}
         </div>
       )}
       {p.acao_sugerida && (
-        <p className="text-xs text-gray-700 font-medium">→ {p.acao_sugerida}</p>
+        <p className="text-xs text-zinc-200 font-medium">→ {p.acao_sugerida}</p>
       )}
 
-      {/* ───── Action area (preservada — interatividade intacta) ───── */}
       {p.status === "approved" && (
-        <p className="text-xs text-emerald-600 font-medium">Executado — {p.result_message}</p>
+        <p className="text-xs text-emerald-400 font-medium">Executado — {p.result_message}</p>
       )}
       {p.status === "rejected" && (
-        <p className="text-xs text-gray-400">Ignorado.</p>
+        <p className="text-xs text-zinc-500">Ignorado.</p>
       )}
 
       {p.status === "pending" && p.copy_sugerida && (
@@ -211,8 +201,8 @@ export default async function DailyReportPage({
   const secret = process.env.REPORT_VIEW_SECRET;
   if (secret && searchParams.key !== secret) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-500 text-sm">Acesso não autorizado.</p>
+      <div className="min-h-screen bg-[#050505] flex items-center justify-center">
+        <p className="text-zinc-500 text-sm">Acesso não autorizado.</p>
       </div>
     );
   }
@@ -224,7 +214,6 @@ export default async function DailyReportPage({
 
   const briefs = await Promise.all(reports.map(r => getDesignBrief(r.client_slug).catch(() => null)));
 
-  // Pré-computa status/ordenação por cliente
   const enriched = reports.map((report, idx) => {
     const metaProposals = report.meta?.proposals ?? [];
     const googleProposals = report.google?.proposals ?? [];
@@ -235,7 +224,6 @@ export default async function DailyReportPage({
     return { report, idx, metaProposals, googleProposals, pending, pendingActionable, status, spend };
   });
 
-  // Triagem: vermelho → amarelo → verde; dentro, maior gasto primeiro
   const statusRank: Record<StatusLevel, number> = { red: 0, yellow: 1, green: 2 };
   enriched.sort((a, b) =>
     statusRank[a.status.level] - statusRank[b.status.level] || b.spend - a.spend
@@ -243,9 +231,8 @@ export default async function DailyReportPage({
 
   const totalSpend = enriched.reduce((s, e) => s + e.spend, 0);
   const totalPending = enriched.reduce((n, e) => n + e.pending.length, 0);
+  const criticalCount = enriched.filter(e => e.status.level === "red").length;
 
-  // Pedidos de criativo na fila (status creative_requested / generating em qualquer proposta)
-  // Mostrados num painel no topo — assim o usuário enxerga "pra onde foi" o pedido dele.
   const pendingCreativeReqs = enriched.flatMap(({ report }) => {
     const all = [...(report.meta?.proposals ?? []), ...(report.google?.proposals ?? [])];
     return all
@@ -257,91 +244,82 @@ export default async function DailyReportPage({
         status: p.status as "creative_requested" | "generating",
       }));
   });
-  const criticalCount = enriched.filter(e => e.status.level === "red").length;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
+    <div className="min-h-screen bg-[#050505] text-zinc-200">
+      <div className="max-w-3xl mx-auto px-4 py-8 space-y-5">
 
         {/* Header */}
-        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
-          <p className="text-xs text-gray-400 uppercase tracking-wider font-medium">Simple MKT Digital</p>
-          <h1 className="text-xl font-bold text-gray-900 mt-1">Relatório Diário</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{fmtDate(date)}</p>
-          <div className="grid grid-cols-4 gap-3 mt-4 pt-4 border-t border-gray-100 text-center">
-            <div>
-              <p className="text-xs text-gray-400">Clientes</p>
-              <p className="text-lg font-bold text-gray-900">{reports.length}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400">Gasto 7d</p>
-              <p className="text-lg font-bold text-gray-900">{fmtBRL(totalSpend)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400">Críticos</p>
-              <p className={`text-lg font-bold ${criticalCount > 0 ? "text-red-600" : "text-gray-900"}`}>{criticalCount}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400">Ações</p>
-              <p className={`text-lg font-bold ${totalPending > 0 ? "text-amber-600" : "text-gray-900"}`}>{totalPending}</p>
-            </div>
+        <div className="bg-[#0f0f12] border border-[#1c1c20] rounded-2xl p-5">
+          <p className="text-[11px] text-zinc-500 uppercase tracking-[0.22em] font-medium">Simple MKT Digital</p>
+          <h1 className="text-2xl font-semibold text-zinc-50 mt-1 tracking-tight">Relatório diário</h1>
+          <p className="text-sm text-zinc-400 mt-0.5 font-mono">{fmtDate(date)}</p>
+          <div className="grid grid-cols-4 gap-3 mt-4 pt-4 border-t border-[#1c1c20] text-center">
+            <Kpi label="Clientes" value={String(reports.length)} />
+            <Kpi label="Gasto 7d" value={fmtBRL(totalSpend)} mono />
+            <Kpi label="Críticos" value={String(criticalCount)} tone={criticalCount > 0 ? "rose" : undefined} />
+            <Kpi label="Ações" value={String(totalPending)} tone={totalPending > 0 ? "amber" : undefined} />
           </div>
         </div>
 
         {reports.length === 0 && (
-          <div className="bg-white rounded-2xl p-10 text-center border border-gray-100">
-            <p className="text-gray-400 text-sm">Nenhum relatório para {fmtDate(date)}.</p>
-            <p className="text-xs text-gray-300 mt-1">O cron executa diariamente a partir das 6h.</p>
+          <div className="bg-[#0f0f12] border border-[#1c1c20] rounded-2xl p-10 text-center">
+            <p className="text-zinc-500 text-sm">Nenhum relatório para {fmtDate(date)}.</p>
+            <p className="text-xs text-zinc-600 mt-1">O cron executa diariamente a partir das 6h.</p>
           </div>
         )}
 
-        {/* Pedidos de criativo na fila — torna visível "pra onde foi" o pedido */}
         {pendingCreativeReqs.length > 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-2">
+          <div className="bg-amber-500/5 border border-amber-500/30 rounded-2xl p-4 space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-xs font-bold text-amber-800 uppercase tracking-wide">
+              <p className="text-[11px] font-bold text-amber-300 uppercase tracking-[0.22em]">
                 Pedidos de criativo na fila ({pendingCreativeReqs.length})
               </p>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-bold">
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-200 font-bold border border-amber-500/30">
                 Pipeline em manutenção
               </span>
             </div>
-            <p className="text-xs text-amber-700">
-              Você solicitou novos criativos abaixo. O pipeline de geração está em manutenção (3 defeitos abertos) e <b>pode não processar agora</b> — os pedidos ficam aqui na fila até reativarmos.
+            <p className="text-xs text-amber-200/80">
+              Você solicitou novos criativos abaixo. O pipeline de geração está em manutenção e <b>pode não processar agora</b> — os pedidos ficam aqui até reativarmos.
             </p>
-            <ul className="text-xs text-amber-900 space-y-1 pt-1">
+            <ul className="text-xs text-amber-100 space-y-1 pt-1">
               {pendingCreativeReqs.map((r, i) => (
                 <li key={i} className="flex items-center gap-2">
-                  <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded font-bold ${
-                    r.status === "generating" ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-800"
+                  <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded font-bold border ${
+                    r.status === "generating"
+                      ? "bg-blue-500/15 text-blue-300 border-blue-500/30"
+                      : "bg-amber-500/15 text-amber-200 border-amber-500/30"
                   }`}>
                     {r.status === "generating" ? "GERANDO" : "NA FILA"}
                   </span>
                   <span className="font-semibold">{r.client_name}</span>
-                  <span className="text-amber-700 truncate">— {r.ad_name}</span>
+                  <span className="text-amber-200/70 truncate">— {r.ad_name}</span>
                 </li>
               ))}
             </ul>
           </div>
         )}
 
-        {/* Clientes — ordenados por urgência (triagem) */}
+        {/* Clientes */}
         {enriched.map(({ report, idx, metaProposals, googleProposals, pending, pendingActionable, status }) => {
           const brief = briefs[idx];
+          const metaCampaigns = report.meta?.campaigns_analysis ?? [];
+          const googleCampaigns = report.google?.campaigns_analysis ?? [];
+          const hasCampaignAnalysis = metaCampaigns.length + googleCampaigns.length > 0;
 
-          // Itens acionáveis ordenados pior → melhor (score asc; desempate por urgência do verdict)
           const sortedActions = [...pendingActionable].sort((a, b) =>
             pScore(a) - pScore(b) ||
             (verdictUrgency[a.verdict] ?? 9) - (verdictUrgency[b.verdict] ?? 9)
           );
+
+          const metaPropsByCamp = groupBy(metaProposals, p => p.campaign_name);
+          const googlePropsByCamp = groupBy(googleProposals, p => p.campaign_name);
           const metaPlatform = new Set(metaProposals.map(p => p.id));
 
-          // CreateCreativeCard: pior e melhor
           const allProposals = [...metaProposals, ...googleProposals];
           const worstAd = allProposals.find(p => (p.verdict === "pausar" || p.verdict === "ajustar") && p.status === "pending");
           const bestAd = allProposals.find(p => p.verdict === "escalar" || p.verdict === "manter");
 
-          // Contexto de-enfatizado
           const infoAlerts = [
             ...(report.meta?.alerts ?? []),
             ...(report.google?.alerts ?? []),
@@ -351,50 +329,86 @@ export default async function DailyReportPage({
           return (
             <details
               key={report.id}
-              className={`group bg-white rounded-2xl border-2 shadow-sm overflow-hidden ${status.ring}`}
+              className={`group bg-[#18181b] rounded-2xl border-2 overflow-hidden ${status.ring}`}
             >
-              {/* Linha do cliente (recolhida) — clicável para abrir as ações */}
-              <summary className="px-5 py-3.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden hover:bg-gray-50/70 transition-colors group-open:border-b group-open:border-gray-100">
+              <summary className="px-5 py-3.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden hover:bg-zinc-900/40 transition-colors group-open:border-b group-open:border-[#1c1c20]">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${status.dot}`} />
-                    <p className="font-bold text-gray-900 text-sm truncate">{report.client_name}</p>
+                    <p className="font-semibold text-zinc-50 text-sm truncate">{report.client_name}</p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                      status.level === "red" ? "bg-red-100 text-red-700" :
-                      status.level === "yellow" ? "bg-amber-100 text-amber-700" :
-                      "bg-emerald-100 text-emerald-700"
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                      status.level === "red" ? "bg-rose-500/15 text-rose-300 border-rose-500/30" :
+                      status.level === "yellow" ? "bg-amber-500/15 text-amber-300 border-amber-500/30" :
+                      "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
                     }`}>
                       {status.label}
                     </span>
-                    <span className="text-gray-400 text-xs transition-transform group-open:rotate-90">▸</span>
+                    <span className="text-zinc-500 text-xs transition-transform group-open:rotate-90">▸</span>
                   </div>
                 </div>
-                {/* KPIs em linha compacta */}
-                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs">
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[11px] font-mono">
                   {report.meta && (
                     <>
-                      <span className="text-gray-400">Meta <span className="font-bold text-gray-800">{fmtBRL(report.meta.spend_7d ?? 0)}</span></span>
-                      <span className="text-gray-400">Leads <span className="font-bold text-gray-800">{report.meta.leads_7d ?? 0}</span></span>
-                      <span className="text-gray-400">CTR <span className="font-bold text-gray-800">{(report.meta.avg_ctr ?? 0).toFixed(2)}%</span></span>
+                      <span className="text-zinc-500">meta <span className="font-semibold text-zinc-200">{fmtBRL(report.meta.spend_7d ?? 0)}</span></span>
+                      <span className="text-zinc-500">leads <span className="font-semibold text-zinc-200">{report.meta.leads_7d ?? 0}</span></span>
+                      <span className="text-zinc-500">ctr <span className="font-semibold text-zinc-200">{(report.meta.avg_ctr ?? 0).toFixed(2)}%</span></span>
                     </>
                   )}
                   {report.google && (
                     <>
-                      <span className="text-gray-400">Google <span className="font-bold text-gray-800">{fmtBRL(report.google.spend_7d ?? 0)}</span></span>
-                      <span className="text-gray-400">Conv. <span className="font-bold text-gray-800">{(report.google.conversions_7d ?? 0).toFixed(0)}</span></span>
+                      <span className="text-zinc-500">google <span className="font-semibold text-zinc-200">{fmtBRL(report.google.spend_7d ?? 0)}</span></span>
+                      <span className="text-zinc-500">conv <span className="font-semibold text-zinc-200">{(report.google.conversions_7d ?? 0).toFixed(0)}</span></span>
                     </>
                   )}
-                  <span className="text-gray-400">Ações <span className={`font-bold ${pending.length > 0 ? "text-amber-600" : "text-gray-800"}`}>{pending.length}</span></span>
+                  <span className="text-zinc-500">ações <span className={`font-bold ${pending.length > 0 ? "text-amber-300" : "text-zinc-200"}`}>{pending.length}</span></span>
                 </div>
               </summary>
 
               <div className="p-4 space-y-3">
-                {/* Fila de ações priorizada (pior primeiro) */}
-                {sortedActions.length > 0 ? (
+                {/* VIEW NOVO: por campanha */}
+                {hasCampaignAnalysis && (
+                  <div className="space-y-3">
+                    {metaCampaigns.map(c => (
+                      <CampaignCard
+                        key={`meta-${c.campaign_id}`}
+                        analysis={c}
+                        proposals={(metaPropsByCamp.get(c.campaign_name) ?? []).filter(p => p.status === "pending")}
+                        renderProposal={(p) => (
+                          <ProposalRow
+                            p={p}
+                            clientSlug={report.client_slug}
+                            date={date}
+                            reportKey={reportKey}
+                            platform="meta"
+                          />
+                        )}
+                      />
+                    ))}
+                    {googleCampaigns.map(c => (
+                      <CampaignCard
+                        key={`google-${c.campaign_id}`}
+                        analysis={c}
+                        proposals={(googlePropsByCamp.get(c.campaign_name) ?? []).filter(p => p.status === "pending")}
+                        renderProposal={(p) => (
+                          <ProposalRow
+                            p={p}
+                            clientSlug={report.client_slug}
+                            date={date}
+                            reportKey={reportKey}
+                            platform="google"
+                          />
+                        )}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {/* VIEW FALLBACK (compat com reports antigos) */}
+                {!hasCampaignAnalysis && sortedActions.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">
+                    <p className="text-[10px] tracking-[0.22em] font-medium text-zinc-500 uppercase">
                       O que fazer ({sortedActions.length})
                     </p>
                     {sortedActions.map(p => (
@@ -408,11 +422,13 @@ export default async function DailyReportPage({
                       />
                     ))}
                   </div>
-                ) : (
-                  <p className="text-xs text-gray-400">Nenhuma ação pendente — conta saudável.</p>
                 )}
 
-                {/* CreateCreativeCard (preservado) */}
+                {!hasCampaignAnalysis && sortedActions.length === 0 && (
+                  <p className="text-xs text-zinc-500">Nenhuma ação pendente — conta saudável.</p>
+                )}
+
+                {/* CreateCreativeCard */}
                 {worstAd && bestAd && (
                   <CreateCreativeCard
                     clientSlug={report.client_slug}
@@ -426,30 +442,30 @@ export default async function DailyReportPage({
                   />
                 )}
 
-                {/* Contexto — de-enfatizado, colapsável */}
+                {/* Contexto */}
                 {(report.meta?.summary_text || report.google?.summary_text || infoAlerts.length > 0 || planoAcao.length > 0) && (
-                  <details className="group">
-                    <summary className="text-[11px] text-gray-400 cursor-pointer select-none hover:text-gray-600 list-none flex items-center gap-1">
-                      <span className="group-open:rotate-90 transition-transform">▸</span> Contexto e resumo
+                  <details className="group/ctx">
+                    <summary className="text-[10px] tracking-[0.22em] uppercase text-zinc-500 cursor-pointer select-none hover:text-zinc-300 list-none [&::-webkit-details-marker]:hidden flex items-center gap-1.5">
+                      <span className="group-open/ctx:rotate-90 transition-transform">▸</span> Contexto e resumo
                     </summary>
-                    <div className="mt-2 space-y-2 pl-3 border-l-2 border-gray-100">
+                    <div className="mt-2 space-y-2 pl-3 border-l-2 border-[#1c1c20]">
                       {report.meta?.summary_text && (
-                        <p className="text-xs text-gray-500 leading-relaxed">
-                          <span className="font-semibold text-blue-500">Meta — </span>{report.meta.summary_text}
+                        <p className="text-xs text-zinc-400 leading-relaxed">
+                          <span className="font-semibold text-blue-400">Meta — </span>{report.meta.summary_text}
                         </p>
                       )}
                       {report.google?.summary_text && (
-                        <p className="text-xs text-gray-500 leading-relaxed">
-                          <span className="font-semibold text-orange-500">Google — </span>{report.google.summary_text}
+                        <p className="text-xs text-zinc-400 leading-relaxed">
+                          <span className="font-semibold text-orange-400">Google — </span>{report.google.summary_text}
                         </p>
                       )}
                       {planoAcao.slice(0, 3).map((a, i) => (
-                        <p key={i} className="text-xs text-gray-500">
-                          <span className="font-semibold">#{a.prioridade} {a.titulo}</span> — {a.descricao}
+                        <p key={i} className="text-xs text-zinc-400">
+                          <span className="font-semibold text-zinc-200">#{a.prioridade} {a.titulo}</span> — {a.descricao}
                         </p>
                       ))}
                       {infoAlerts.slice(0, 4).map((al, i) => (
-                        <p key={i} className="text-xs text-gray-400">{al.title}: {al.message}</p>
+                        <p key={i} className="text-xs text-zinc-500">{al.title}: {al.message}</p>
                       ))}
                     </div>
                   </details>
@@ -459,10 +475,30 @@ export default async function DailyReportPage({
           );
         })}
 
-        <p className="text-center text-xs text-gray-300 pb-6">
+        <p className="text-center text-[10px] tracking-[0.22em] uppercase text-zinc-700 pb-6">
           Simple MKT Digital · Relatório automático
         </p>
       </div>
     </div>
   );
+}
+
+function Kpi({ label, value, tone, mono }: { label: string; value: string; tone?: "rose" | "amber"; mono?: boolean }) {
+  const toneCls = tone === "rose" ? "text-rose-400" : tone === "amber" ? "text-amber-400" : "text-zinc-50";
+  return (
+    <div>
+      <p className="text-[10px] text-zinc-500 uppercase tracking-[0.18em] font-medium">{label}</p>
+      <p className={`text-lg font-semibold mt-0.5 ${toneCls} ${mono ? "font-mono" : ""}`}>{value}</p>
+    </div>
+  );
+}
+
+function groupBy<T, K>(arr: T[], keyFn: (t: T) => K): Map<K, T[]> {
+  const m = new Map<K, T[]>();
+  for (const item of arr) {
+    const k = keyFn(item);
+    const cur = m.get(k);
+    if (cur) cur.push(item); else m.set(k, [item]);
+  }
+  return m;
 }

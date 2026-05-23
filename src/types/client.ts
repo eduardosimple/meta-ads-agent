@@ -18,6 +18,14 @@ export interface ClientGoogle {
   manager_customer_id?: string;  // MCC login-customer-id (optional)
 }
 
+export interface Empreendimento {
+  nome: string;
+  localizacao: string;
+  tipo?: string;
+  status?: string;
+  observacoes?: string;
+}
+
 export interface ClientContexto {
   segmento: string;
   cidade: string;
@@ -26,6 +34,13 @@ export interface ClientContexto {
   orcamento_diario_padrao: number;
   objetivo_padrao: string;
   orcamento_mensal_cents?: number; // se definido, limita escalonamentos e informa Claude
+  /**
+   * Empreendimentos/produtos do cliente. Quando presente, o analyzer inclui
+   * a lista no prompt para o Claude mapear ad_name → empreendimento e usar a
+   * localização/tipo certa em vez de generalizar pela cidade do cliente.
+   * Ex: famex tem Turmalina em Pato Branco mesmo sendo cliente de Chapecó.
+   */
+  empreendimentos?: Empreendimento[];
 }
 
 export interface Client {
