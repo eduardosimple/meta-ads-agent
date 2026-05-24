@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getClients } from "@/lib/clients";
 import { getReportsByDate } from "@/lib/reports-store";
+import { todayBR, nDaysAgoBR } from "@/lib/date-br";
 
 export const maxDuration = 30;
 
@@ -13,7 +14,7 @@ export async function GET(req: NextRequest) {
   const clients = await getClients();
   const activeClients = clients.filter(c => c.ativo);
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayBR();
 
   // Single query to get all today's reports
   let todayReports: Awaited<ReturnType<typeof getReportsByDate>> = [];

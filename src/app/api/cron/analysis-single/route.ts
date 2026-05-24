@@ -5,6 +5,7 @@ import { getGoogleCampaignsWithMetrics } from "@/lib/google-ads-api";
 import { analyzeMetaAds, analyzeGoogleAds } from "@/lib/analysis";
 import type { DailyReport } from "@/lib/reports-store";
 import { randomUUID } from "crypto";
+import { todayBR, nDaysAgoBR } from "@/lib/date-br";
 
 // 300s: contas de alto gasto (muitos anúncios + chamada Claude) passam de 60s.
 // Em 60s o Vercel matava a função (504) e o report não era salvo — falha
@@ -22,8 +23,8 @@ export async function GET(req: NextRequest) {
   const slug = req.nextUrl.searchParams.get("slug");
   if (!slug) return NextResponse.json({ error: "slug required" }, { status: 400 });
 
-  const today = new Date().toISOString().split("T")[0];
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  const today = todayBR();
+  const sevenDaysAgo = nDaysAgoBR(7);
 
   const client = await getClientBySlug(slug);
   if (!client) return NextResponse.json({ error: "Client not found" }, { status: 404 });

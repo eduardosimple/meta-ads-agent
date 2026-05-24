@@ -3,6 +3,7 @@ import { getAuthFromRequest } from "@/lib/auth";
 import { getClientBySlug } from "@/lib/clients";
 import { getReport } from "@/lib/reports-store";
 import { analyzeGoogleAds } from "@/lib/analysis";
+import { todayBR, nDaysAgoBR } from "@/lib/date-br";
 
 export const maxDuration = 60;
 
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
 
     // Return today's cached report if available (user-triggered only)
     if (!validCron) {
-      const today = new Date().toISOString().split("T")[0];
+      const today = todayBR();
       const cached = await getReport(clientSlug, today).catch(() => null);
       if (cached?.google) return NextResponse.json(cached.google);
     }

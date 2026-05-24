@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAppContext } from "@/context/AppContext";
 import type { DailyReport } from "@/lib/reports-store";
 import type { Proposal, ActionItem } from "@/types/metrics";
+import { todayBR, nDaysAgoBR } from "@/lib/date-br";
 
 function fmt(n: number) {
   return `R$ ${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -13,7 +14,7 @@ function fmtDate(d: string) {
   return `${day}/${m}/${y}`;
 }
 function timeAgoDate(d: string) {
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayBR();
   if (d === today) return "Hoje";
   const diff = Math.round((new Date(today).getTime() - new Date(d).getTime()) / 86400000);
   if (diff === 1) return "Ontem";
