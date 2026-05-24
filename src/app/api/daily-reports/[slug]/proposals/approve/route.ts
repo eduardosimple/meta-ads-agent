@@ -4,7 +4,7 @@ import { getClientBySlug } from "@/lib/clients";
 import {
   getAdAdsetId,
   getAdsetDetails,
-  getAdImageHash,
+  getAdCreativeSource,
   uploadAdImage,
   createAdCreative,
   createAd,
@@ -68,16 +68,19 @@ export async function POST(
     const adsetDetails = await getAdsetDetails(adsetId, access_token);
     const isWhatsApp = adsetDetails.optimization_goal === "CONVERSATIONS" || adsetDetails.destination_type === "WHATSAPP";
 
-    // Get image: use provided base64 or fall back to original ad's image hash
-    let imageHash: string;
+    // Fonte visual: nova imagem (image_base64), ou reaproveita do ad original
+    // — imagem (image_hash) OU vídeo (video_id + thumbnail).
+    let imageHash: string | undefined;
+    let videoSource: { videoId: string; thumbnailUrl?: string } | undefined;
     if (copy.image_base64) {
       const imgBuf = Buffer.from(copy.image_base64, "base64");
       const filename = `${params.slug}-${ad_id}-${versao}.png`;
       imageHash = await uploadAdImage(ad_account_id, access_token, imgBuf, filename);
     } else {
-      const originalHash = await getAdImageHash(ad_id, access_token);
-      if (!originalHash) return NextResponse.json({ error: "Sem imagem disponível. Forneça image_base64 na proposta." }, { status: 400 });
-      imageHash = originalHash;
+      const source = await getAdCreativeSource(ad_id, access_token);
+      if (!source) return NextResponse.json({ error: "Ad original sem imagem nem vídeo identificáveis. Forneça image_base64." }, { status: 400 });
+      if (source.kind === "image") imageHash = source.imageHash;
+      else videoSource = { videoId: source.videoId, thumbnailUrl: source.thumbnailUrl };
     }
 
     // Create creative following skill rules (WhatsApp vs Website CTA)
@@ -87,6 +90,7 @@ export async function POST(
       pageId: page_id,
       instagramActorId: instagram_actor_id,
       imageHash,
+      videoSource,
       message: chosen.texto,
       headline: chosen.headline,
       destinationType: isWhatsApp ? "WHATSAPP" : "WEBSITE",

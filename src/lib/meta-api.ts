@@ -470,6 +470,40 @@ export async function getAdImageHash(
   }
 }
 
+/** Source visual de um ad existente — pode ser imagem (image_hash) OU vídeo
+ *  (video_id + thumbnail). Quando approve não recebe image_base64, usamos
+ *  isto pra reaproveitar a "casca" visual do ad original na nova variação. */
+export type AdCreativeSource =
+  | { kind: "image"; imageHash: string }
+  | { kind: "video"; videoId: string; thumbnailUrl?: string };
+
+export async function getAdCreativeSource(
+  adId: string,
+  accessToken: string
+): Promise<AdCreativeSource | null> {
+  try {
+    const data = await metaFetch<{ creative?: { id: string } }>(
+      `/${adId}?fields=creative{id}&access_token=${encodeURIComponent(accessToken)}`
+    );
+    const creativeId = data.creative?.id;
+    if (!creativeId) return null;
+    const creative = await metaFetch<{
+      object_story_spec?: {
+        link_data?: { image_hash?: string };
+        video_data?: { video_id?: string; image_url?: string };
+      };
+    }>(
+      `/${creativeId}?fields=object_story_spec&access_token=${encodeURIComponent(accessToken)}`
+    );
+    const oss = creative.object_story_spec;
+    if (oss?.link_data?.image_hash) return { kind: "image", imageHash: oss.link_data.image_hash };
+    if (oss?.video_data?.video_id) return { kind: "video", videoId: oss.video_data.video_id, thumbnailUrl: oss.video_data.image_url };
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function uploadAdImage(
   adAccountId: string,
   accessToken: string,
@@ -500,7 +534,9 @@ export async function createAdCreative(
     name: string;
     pageId: string;
     instagramActorId?: string;
-    imageHash: string;
+    /** Fonte visual: imagem (image_hash) OU vídeo reaproveitado (video_id + thumbnail). Pelo menos um obrigatório. */
+    imageHash?: string;
+    videoSource?: { videoId: string; thumbnailUrl?: string };
     message: string;
     headline: string;
     destinationType: "WHATSAPP" | "WEBSITE" | "INSTAGRAM_DIRECT" | "FACEBOOK";
@@ -509,36 +545,54 @@ export async function createAdCreative(
     cta?: string;
   }
 ): Promise<string> {
-  const linkData: Record<string, unknown> = {
-    image_hash: opts.imageHash,
-    message: opts.message,
-    name: opts.headline,
-  };
-
+  // CTA — mesma regra para image e vídeo
+  let callToAction: Record<string, unknown>;
+  let topLink: string | undefined;
   if (opts.destinationType === "WHATSAPP") {
-    // Skill rule: WHATSAPP_MESSAGE CTA with app_destination, link = wa.me URL
     const waLink = opts.whatsappNumber
       ? `https://wa.me/55${opts.whatsappNumber.replace(/\D/g, "")}`
       : undefined;
-    linkData.call_to_action = {
+    callToAction = {
       type: "WHATSAPP_MESSAGE",
       value: { app_destination: "WHATSAPP", ...(waLink ? { link: waLink } : {}) },
     };
   } else {
-    // WEBSITE / DIRECT / FACEBOOK — use LEARN_MORE or provided cta
     const ctaType = opts.cta ?? "LEARN_MORE";
-    linkData.call_to_action = {
+    callToAction = {
       type: ctaType,
       ...(opts.linkUrl ? { value: { link: opts.linkUrl } } : {}),
     };
-    if (opts.linkUrl) linkData.link = opts.linkUrl;
+    topLink = opts.linkUrl;
   }
 
   const story: Record<string, unknown> = {
     page_id: opts.pageId,
-    link_data: linkData,
   };
   if (opts.instagramActorId) story.instagram_actor_id = opts.instagramActorId;
+
+  if (opts.videoSource) {
+    // Reaproveita o vídeo do ad original. object_story_spec.video_data.
+    const videoData: Record<string, unknown> = {
+      video_id: opts.videoSource.videoId,
+      title: opts.headline,
+      message: opts.message,
+      call_to_action: callToAction,
+    };
+    if (opts.videoSource.thumbnailUrl) videoData.image_url = opts.videoSource.thumbnailUrl;
+    if (topLink) videoData.link_description = opts.headline;
+    story.video_data = videoData;
+  } else if (opts.imageHash) {
+    const linkData: Record<string, unknown> = {
+      image_hash: opts.imageHash,
+      message: opts.message,
+      name: opts.headline,
+      call_to_action: callToAction,
+    };
+    if (topLink) linkData.link = topLink;
+    story.link_data = linkData;
+  } else {
+    throw new Error("createAdCreative: precisa de imageHash OU videoSource");
+  }
 
   const data = await metaFetch<{ id: string }>(`/${adAccountId}/adcreatives`, {
     method: "POST",
