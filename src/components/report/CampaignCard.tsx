@@ -25,44 +25,49 @@ const fmtBRL = (n: number) =>
 
 /**
  * Card de campanha estilo Magazan (dark premium).
- * Seções: BOM/RUIM/MUDAR · Anúncios (com papel explícito) · Públicos
- * (manter/trocar) · Ações dos ads · Nova estrutura quando substituir.
+ * Estrutura: BOM/RUIM/MUDAR (resumo) · Anúncios (cada um com sua análise+ação inline) ·
+ * Públicos (cada um idem) · Nova estrutura quando substituir.
+ *
+ * Matching de proposals:
+ * - Anúncio (por ad_id): inclui apenas proposals cuja action NÃO é create_adset
+ *   (criar conjunto é ação de público, mesmo que o proposal carregue um ad_id).
+ * - Público (por adset_name): inclui apenas proposals com action.type=create_adset.
  */
 export default function CampaignCard({
   analysis,
   proposals,
   metrics,
-  renderProposal,
-  renderAction,
+  renderActionDetail,
 }: {
   analysis: CampaignAnalysis;
   proposals: Proposal[];
   metrics?: { spend: number; leads: number; ctr: number; cpm: number };
-  /** Render full ProposalRow no rodapé (verbose). */
-  renderProposal?: (p: Proposal) => React.ReactNode;
-  /** Render só os botões de ação inline (compacto). Usado ao lado de cada anúncio/público. */
-  renderAction?: (p: Proposal) => React.ReactNode;
+  /** Render INLINE: diagnóstico+métricas+ação_sugerida+botão do proposal, compacto. */
+  renderActionDetail?: (p: Proposal) => React.ReactNode;
 }) {
   const v = verdictTone[analysis.verdict];
   const anuncios = analysis.anuncios ?? [];
   const publicos = analysis.publicos ?? [];
-  // Maps proposal por ad_id e por adset (campaign-scoped) para inline buttons
-  const propByAdId = new Map<string, Proposal>();
-  const propByAdsetName = new Map<string, Proposal>();
+
+  // Separar proposals por destino: anúncio vs público
+  const adProposals = new Map<string, Proposal[]>();
+  const publicoProposalsByAdsetName = new Map<string, Proposal>();
+  const unmatchedProposals: Proposal[] = [];
   for (const p of proposals) {
     if (p.status !== "pending") continue;
-    if (p.ad_id) propByAdId.set(p.ad_id, p);
-    // For create_adset (audience swap), the proposal carries adset_name in action.adset_name
-    if (p.action?.type === "create_adset" && p.action.adset_name) {
-      propByAdsetName.set(p.adset_name ?? "", p);
+    const isPublicSwap = p.action?.type === "create_adset" || p.action?.type === "update_adset_targeting";
+    if (isPublicSwap && p.adset_name) {
+      publicoProposalsByAdsetName.set(p.adset_name, p);
+    } else if (p.ad_id) {
+      const cur = adProposals.get(p.ad_id) ?? [];
+      cur.push(p);
+      adProposals.set(p.ad_id, cur);
+    } else {
+      unmatchedProposals.push(p);
     }
-    // Also index by the (old) adset_name on the proposal itself for audience-swap matching
-    if (p.adset_name) propByAdsetName.set(p.adset_name, p);
   }
 
-  // Dedup anúncios — Claude às vezes lista o mesmo ad várias vezes com
-  // papéis conflitantes. Pegar 1 ocorrência por ad_id, escolhendo o papel
-  // mais urgente (papelRank menor = mais urgente).
+  // Dedup anúncios (Claude às vezes duplica) — papel mais crítico vence
   const papelRank: Record<string, number> = { pausar: 0, substituir: 1, escalar: 2, testar: 3, manter: 4 };
   const anunciosDedup = Array.from(
     anuncios.reduce((acc, a) => {
@@ -72,7 +77,6 @@ export default function CampaignCard({
       return acc;
     }, new Map<string, typeof anuncios[number]>()).values()
   );
-  // Mesmo dedup para públicos (por adset_id)
   const publicosDedup = Array.from(
     publicos.reduce((acc, p) => {
       if (!p?.adset_id) return acc;
@@ -81,6 +85,9 @@ export default function CampaignCard({
       return acc;
     }, new Map<string, typeof publicos[number]>()).values()
   );
+
+  // Tracking de proposals usados — sobra vai para "Outras ações"
+  const usedProposalIds = new Set<string>();
 
   return (
     <div className="bg-[#18181b] border border-[#1c1c20] rounded-2xl overflow-hidden">
@@ -104,14 +111,14 @@ export default function CampaignCard({
         )}
       </div>
 
-      {/* 3 colunas: BOM | RUIM | MUDAR */}
+      {/* Resumo: 3 colunas BOM | RUIM | MUDAR */}
       <div className="grid grid-cols-1 sm:grid-cols-3 sm:divide-x divide-[#1c1c20]">
         <Col eyebrow="BOM" colorCls="text-[#86efac]" items={analysis.pontos_bons ?? []} />
         <Col eyebrow="RUIM" colorCls="text-[#fda4af]" items={analysis.pontos_ruins ?? []} />
         <Col eyebrow="MUDAR" colorCls="text-[#fcd34d]" items={analysis.o_que_mudar ?? []} />
       </div>
 
-      {/* Anúncios da campanha — explicita o papel de cada ad */}
+      {/* Anúncios da campanha — cada um com análise + ação inline */}
       {anunciosDedup.length > 0 && (
         <div className="px-5 py-4 border-t border-[#1c1c20] space-y-2.5">
           <p className="text-[10px] tracking-[0.22em] uppercase text-zinc-500 font-medium">
@@ -120,9 +127,10 @@ export default function CampaignCard({
           <ul className="space-y-2">
             {anunciosDedup.map((a) => {
               const tone = papelAdTone[a.papel] ?? papelAdTone.manter;
-              const linkedProp = propByAdId.get(a.ad_id);
+              const linkedProps = adProposals.get(a.ad_id) ?? [];
+              linkedProps.forEach(lp => usedProposalIds.add(lp.id));
               return (
-                <li key={a.ad_id} className="rounded-lg border border-[#1c1c20] bg-[#0f0f12] px-2.5 py-2 space-y-1.5">
+                <li key={a.ad_id} className="rounded-lg border border-[#1c1c20] bg-[#0f0f12] px-3 py-2.5 space-y-2">
                   <div className="flex items-start gap-2 text-xs">
                     <span className={`shrink-0 text-[9px] tracking-[0.12em] font-bold uppercase px-1.5 py-0.5 rounded border ${tone.cls}`}>
                       {tone.label}
@@ -135,12 +143,16 @@ export default function CampaignCard({
                       <span className="shrink-0 text-[10px] font-mono text-zinc-500 tabular-nums">{a.score}</span>
                     )}
                   </div>
-                  {/* Botão de ação inline (se houver proposal pendente para este ad) */}
-                  {linkedProp && renderAction && (
-                    <div className="pt-0.5">{renderAction(linkedProp)}</div>
+                  {/* Detalhe completo + botão inline pra cada proposal vinculado a este ad */}
+                  {linkedProps.length > 0 && renderActionDetail && (
+                    <div className="space-y-2 border-t border-[#1c1c20] pt-2">
+                      {linkedProps.map(lp => (
+                        <div key={lp.id}>{renderActionDetail(lp)}</div>
+                      ))}
+                    </div>
                   )}
-                  {!linkedProp && a.papel !== "manter" && (
-                    <p className="text-[10px] text-zinc-600 italic pl-0.5">Sem ação executável automática — ajuste manual no gerenciador.</p>
+                  {linkedProps.length === 0 && a.papel !== "manter" && (
+                    <p className="text-[10px] text-zinc-600 italic pl-0.5">Sem ação executável automática para este anúncio — ajuste manual no gerenciador.</p>
                   )}
                 </li>
               );
@@ -149,7 +161,7 @@ export default function CampaignCard({
         </div>
       )}
 
-      {/* Públicos da campanha — manter ou trocar (com substituto especificado) */}
+      {/* Públicos da campanha — cada um com proposta de troca + botão inline */}
       {publicosDedup.length > 0 && (
         <div className="px-5 py-4 border-t border-[#1c1c20] space-y-2.5">
           <p className="text-[10px] tracking-[0.22em] uppercase text-zinc-500 font-medium">
@@ -158,9 +170,10 @@ export default function CampaignCard({
           <ul className="space-y-2">
             {publicosDedup.map((p) => {
               const tone = papelPublicoTone[p.papel] ?? papelPublicoTone.manter;
-              const linkedProp = propByAdsetName.get(p.adset_name);
+              const linkedProp = publicoProposalsByAdsetName.get(p.adset_name);
+              if (linkedProp) usedProposalIds.add(linkedProp.id);
               return (
-                <li key={p.adset_id} className="rounded-lg border border-[#1c1c20] bg-[#0f0f12] px-2.5 py-2 text-xs space-y-1.5">
+                <li key={p.adset_id} className="rounded-lg border border-[#1c1c20] bg-[#0f0f12] px-3 py-2.5 text-xs space-y-2">
                   <div className="flex items-start gap-2">
                     <span className={`shrink-0 text-[9px] tracking-[0.12em] font-bold uppercase px-1.5 py-0.5 rounded border ${tone.cls}`}>
                       {tone.label}
@@ -177,8 +190,8 @@ export default function CampaignCard({
                       <p className="text-zinc-400 italic">{p.substituir_por.racional}</p>
                     </div>
                   )}
-                  {linkedProp && renderAction && (
-                    <div className="pt-0.5">{renderAction(linkedProp)}</div>
+                  {linkedProp && renderActionDetail && (
+                    <div className="border-t border-[#1c1c20] pt-2">{renderActionDetail(linkedProp)}</div>
                   )}
                   {!linkedProp && p.papel === "trocar" && (
                     <p className="text-[10px] text-zinc-600 italic pl-0.5">Sem ação executável automática — criar conjunto manualmente no gerenciador.</p>
@@ -190,19 +203,25 @@ export default function CampaignCard({
         </div>
       )}
 
-      {/* Ações executáveis (botões aprovar/pausar/escalar — preserva interatividade) */}
-      {proposals.length > 0 && renderProposal && (
-        <div className="px-5 py-4 border-t border-[#1c1c20] space-y-2.5">
-          <p className="text-[10px] tracking-[0.22em] uppercase text-zinc-500 font-medium">
-            Ações executáveis ({proposals.length})
-          </p>
-          <div className="space-y-2">
-            {proposals.map(p => (
-              <div key={p.id}>{renderProposal(p)}</div>
-            ))}
+      {/* Outras ações — proposals que não casaram com nenhum anúncio/público listado */}
+      {(() => {
+        const others = proposals.filter(p => p.status === "pending" && !usedProposalIds.has(p.id));
+        if (others.length === 0 || !renderActionDetail) return null;
+        return (
+          <div className="px-5 py-4 border-t border-[#1c1c20] space-y-2.5">
+            <p className="text-[10px] tracking-[0.22em] uppercase text-zinc-500 font-medium">
+              Outras ações da campanha ({others.length})
+            </p>
+            <div className="space-y-2">
+              {others.map(p => (
+                <div key={p.id} className="rounded-lg border border-[#1c1c20] bg-[#0f0f12] px-3 py-2.5">
+                  {renderActionDetail(p)}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Nova estrutura quando verdict=substituir */}
       {analysis.nova_estrutura && (

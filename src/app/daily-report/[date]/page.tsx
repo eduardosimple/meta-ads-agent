@@ -150,6 +150,35 @@ function ProposalActions({
   return null;
 }
 
+/** Versão compacta inline: diagnóstico + métricas + ação_sugerida + botão.
+ *  Usado dentro do CampaignCard, anexado a cada anúncio/público. Sem score
+ *  bar nem cabeçalho — esses dados já vêm do item-pai (anúncio/público). */
+function ProposalDetail({
+  p, clientSlug, date, reportKey, platform = "meta",
+}: {
+  p: Proposal; clientSlug: string; date: string; reportKey: string; platform?: "meta" | "google";
+}) {
+  const metricas = p.metricas_problema ?? [];
+  return (
+    <div className="space-y-1.5">
+      {p.diagnostico && (
+        <p className="text-xs text-zinc-300 leading-snug">{p.diagnostico}</p>
+      )}
+      {metricas.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {metricas.slice(0, 4).map((m, i) => (
+            <span key={i} className="text-[10px] px-1.5 py-0.5 bg-zinc-800/60 border border-zinc-800 rounded text-zinc-400 font-mono">{m}</span>
+          ))}
+        </div>
+      )}
+      {p.acao_sugerida && (
+        <p className="text-xs text-zinc-200 font-medium">→ {p.acao_sugerida}</p>
+      )}
+      <ProposalActions p={p} clientSlug={clientSlug} date={date} reportKey={reportKey} platform={platform} />
+    </div>
+  );
+}
+
 function ProposalRow({
   p, clientSlug, date, reportKey, platform = "meta",
 }: {
@@ -455,11 +484,8 @@ export default async function DailyReportPage({
                         key={`meta-${c.campaign_id}`}
                         analysis={c}
                         proposals={(metaPropsByCamp.get(c.campaign_name) ?? []).filter(p => p.status === "pending")}
-                        renderProposal={(p) => (
-                          <ProposalRow p={p} clientSlug={report.client_slug} date={date} reportKey={reportKey} platform="meta" />
-                        )}
-                        renderAction={(p) => (
-                          <ProposalActions p={p} clientSlug={report.client_slug} date={date} reportKey={reportKey} platform="meta" />
+                        renderActionDetail={(p) => (
+                          <ProposalDetail p={p} clientSlug={report.client_slug} date={date} reportKey={reportKey} platform="meta" />
                         )}
                       />
                     ))}
@@ -468,11 +494,8 @@ export default async function DailyReportPage({
                         key={`google-${c.campaign_id}`}
                         analysis={c}
                         proposals={(googlePropsByCamp.get(c.campaign_name) ?? []).filter(p => p.status === "pending")}
-                        renderProposal={(p) => (
-                          <ProposalRow p={p} clientSlug={report.client_slug} date={date} reportKey={reportKey} platform="google" />
-                        )}
-                        renderAction={(p) => (
-                          <ProposalActions p={p} clientSlug={report.client_slug} date={date} reportKey={reportKey} platform="google" />
+                        renderActionDetail={(p) => (
+                          <ProposalDetail p={p} clientSlug={report.client_slug} date={date} reportKey={reportKey} platform="google" />
                         )}
                       />
                     ))}
