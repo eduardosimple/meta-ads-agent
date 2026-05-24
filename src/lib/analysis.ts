@@ -222,7 +222,12 @@ Antes de listar proposals por anúncio, PREENCHA campaigns_analysis com UMA entr
 - anuncios: OBRIGATÓRIO — array com TODOS os anúncios DESSA campanha presentes nos dados (mesmo os ok). Cada entrada {ad_id, ad_name, papel, motivo}: papel∈"manter"(ok, deixar)|"escalar"(perf top, aumentar)|"pausar"(perf ruim, parar)|"substituir"(pausar e subir variação)|"testar"(rodar paralelo pra validar). Motivo cita números. Isto torna explícito "qual usar/pausar/substituir" — não deixe genérico.
 - publicos: OBRIGATÓRIO — array com TODOS os conjuntos (adsets) DESSA campanha. Cada entrada {adset_id, adset_name, papel, motivo}: papel∈"manter"|"trocar". Se papel="trocar", PREENCHA substituir_por:{targeting_summary, racional} com a especificação do novo público (não modifica o atual, cria novo conjunto pausado).
 - nova_estrutura: SOMENTE quando verdict="substituir" — {nome, objetivo, daily_budget_cents, adsets:[{nome,targeting_summary,daily_budget_cents}], ads:[{nome_proposto, referencia_ad_id?, copy:{headline,texto,cta}, notas_visual?}], notas}. Inclua ads referenciando o vencedor relacionado da conta (referencia_ad_id) + copy nova baseada nele.
-DEPOIS, derive proposals[] (1 por anúncio com ação) consistente com a análise da campanha pai.
+DEPOIS, derive proposals[] OBRIGATÓRIO 1:1 com as ações executáveis:
+- Para CADA anúncio em campaigns_analysis.anuncios com papel ∈ {pausar, escalar, substituir, testar}: EMITA uma entrada em proposals[] referenciando o MESMO ad_id, verdict equivalente (pausar/escalar/testar_variacao/ajustar) e action concreta (pause_ad, scale_budget, ou ajuste_tipo=criativo).
+- Para CADA público em campaigns_analysis.publicos com papel="trocar": EMITA uma entrada em proposals[] com verdict=ajustar, ajuste_tipo=publico, action=create_adset {campaign_id, adset_name (nomenclatura padrão), targeting (objeto Meta válido), optimization_goal, daily_budget_cents razoável, targeting_summary_new=publico.substituir_por.targeting_summary}. Use o ad_id de UM anúncio do conjunto a ser substituído como ad_id do proposal.
+Se NÃO houver action concreta possível (ex: "verificar status manualmente no gerenciador"), NÃO inclua em proposals — só em o_que_mudar como nota textual.
+Sem proposal em proposals[] não vira botão — o gestor precisa de botão executável, não só texto.
+
 Campanhas PAUSED/ARCHIVED não precisam estar em campaigns_analysis (mas o histórico recente delas no HISTÓRICO acima é útil pra fundamentar decisões).`;
 
   const response = await anthropic.messages.create({

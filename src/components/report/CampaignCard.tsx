@@ -33,15 +33,32 @@ export default function CampaignCard({
   proposals,
   metrics,
   renderProposal,
+  renderAction,
 }: {
   analysis: CampaignAnalysis;
   proposals: Proposal[];
   metrics?: { spend: number; leads: number; ctr: number; cpm: number };
+  /** Render full ProposalRow no rodapé (verbose). */
   renderProposal?: (p: Proposal) => React.ReactNode;
+  /** Render só os botões de ação inline (compacto). Usado ao lado de cada anúncio/público. */
+  renderAction?: (p: Proposal) => React.ReactNode;
 }) {
   const v = verdictTone[analysis.verdict];
   const anuncios = analysis.anuncios ?? [];
   const publicos = analysis.publicos ?? [];
+  // Maps proposal por ad_id e por adset (campaign-scoped) para inline buttons
+  const propByAdId = new Map<string, Proposal>();
+  const propByAdsetName = new Map<string, Proposal>();
+  for (const p of proposals) {
+    if (p.status !== "pending") continue;
+    if (p.ad_id) propByAdId.set(p.ad_id, p);
+    // For create_adset (audience swap), the proposal carries adset_name in action.adset_name
+    if (p.action?.type === "create_adset" && p.action.adset_name) {
+      propByAdsetName.set(p.adset_name ?? "", p);
+    }
+    // Also index by the (old) adset_name on the proposal itself for audience-swap matching
+    if (p.adset_name) propByAdsetName.set(p.adset_name, p);
+  }
 
   return (
     <div className="bg-[#18181b] border border-[#1c1c20] rounded-2xl overflow-hidden">
@@ -78,20 +95,30 @@ export default function CampaignCard({
           <p className="text-[10px] tracking-[0.22em] uppercase text-zinc-500 font-medium">
             Anúncios da campanha ({anuncios.length})
           </p>
-          <ul className="space-y-1.5">
+          <ul className="space-y-2">
             {anuncios.map((a) => {
               const tone = papelAdTone[a.papel] ?? papelAdTone.manter;
+              const linkedProp = propByAdId.get(a.ad_id);
               return (
-                <li key={a.ad_id} className="flex items-start gap-2 text-xs">
-                  <span className={`shrink-0 text-[9px] tracking-[0.12em] font-bold uppercase px-1.5 py-0.5 rounded border ${tone.cls}`}>
-                    {tone.label}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-zinc-200 font-semibold truncate">{a.ad_name}</p>
-                    <p className="text-zinc-400 leading-snug">{a.motivo}</p>
+                <li key={a.ad_id} className="rounded-lg border border-[#1c1c20] bg-[#0f0f12] px-2.5 py-2 space-y-1.5">
+                  <div className="flex items-start gap-2 text-xs">
+                    <span className={`shrink-0 text-[9px] tracking-[0.12em] font-bold uppercase px-1.5 py-0.5 rounded border ${tone.cls}`}>
+                      {tone.label}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-zinc-200 font-semibold truncate">{a.ad_name}</p>
+                      <p className="text-zinc-400 leading-snug">{a.motivo}</p>
+                    </div>
+                    {typeof a.score === "number" && (
+                      <span className="shrink-0 text-[10px] font-mono text-zinc-500 tabular-nums">{a.score}</span>
+                    )}
                   </div>
-                  {typeof a.score === "number" && (
-                    <span className="shrink-0 text-[10px] font-mono text-zinc-500 tabular-nums">{a.score}</span>
+                  {/* Botão de ação inline (se houver proposal pendente para este ad) */}
+                  {linkedProp && renderAction && (
+                    <div className="pt-0.5">{renderAction(linkedProp)}</div>
+                  )}
+                  {!linkedProp && a.papel !== "manter" && (
+                    <p className="text-[10px] text-zinc-600 italic pl-0.5">Sem ação executável automática — ajuste manual no gerenciador.</p>
                   )}
                 </li>
               );
@@ -106,11 +133,12 @@ export default function CampaignCard({
           <p className="text-[10px] tracking-[0.22em] uppercase text-zinc-500 font-medium">
             Públicos da campanha ({publicos.length})
           </p>
-          <ul className="space-y-1.5">
+          <ul className="space-y-2">
             {publicos.map((p) => {
               const tone = papelPublicoTone[p.papel] ?? papelPublicoTone.manter;
+              const linkedProp = propByAdsetName.get(p.adset_name);
               return (
-                <li key={p.adset_id} className="text-xs space-y-1">
+                <li key={p.adset_id} className="rounded-lg border border-[#1c1c20] bg-[#0f0f12] px-2.5 py-2 text-xs space-y-1.5">
                   <div className="flex items-start gap-2">
                     <span className={`shrink-0 text-[9px] tracking-[0.12em] font-bold uppercase px-1.5 py-0.5 rounded border ${tone.cls}`}>
                       {tone.label}
@@ -121,11 +149,17 @@ export default function CampaignCard({
                     </div>
                   </div>
                   {p.papel === "trocar" && p.substituir_por && (
-                    <div className="ml-7 mt-1 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 space-y-0.5">
+                    <div className="ml-7 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 space-y-0.5">
                       <p className="text-[10px] tracking-[0.18em] uppercase text-amber-300 font-medium">→ Substituir por</p>
                       <p className="text-zinc-200">{p.substituir_por.targeting_summary}</p>
                       <p className="text-zinc-400 italic">{p.substituir_por.racional}</p>
                     </div>
+                  )}
+                  {linkedProp && renderAction && (
+                    <div className="pt-0.5">{renderAction(linkedProp)}</div>
+                  )}
+                  {!linkedProp && p.papel === "trocar" && (
+                    <p className="text-[10px] text-zinc-600 italic pl-0.5">Sem ação executável automática — criar conjunto manualmente no gerenciador.</p>
                   )}
                 </li>
               );

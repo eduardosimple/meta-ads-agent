@@ -74,6 +74,82 @@ function pScore(p: Proposal): number {
   return typeof p.score === "number" ? p.score : 50;
 }
 
+/** Renderiza só os BOTÕES de ação de um proposal (sem diagnóstico/score).
+ *  Usado inline no CampaignCard ao lado de cada anúncio/público. */
+function ProposalActions({
+  p, clientSlug, date, reportKey, platform = "meta",
+}: {
+  p: Proposal; clientSlug: string; date: string; reportKey: string; platform?: "meta" | "google";
+}) {
+  const isPauseScale = p.verdict === "pausar" || p.verdict === "escalar";
+  const isCreativeAdjust = p.verdict === "testar_variacao" || (p.verdict === "ajustar" && (!p.ajuste_tipo || p.ajuste_tipo === "criativo"));
+  const isManualAdjust = p.verdict === "ajustar" && p.ajuste_tipo && p.ajuste_tipo !== "criativo";
+  const action = p.action ?? { type: "none" as const };
+  const scaleBudget = action.type === "scale_budget" ? action : null;
+
+  if (p.status === "approved") return <p className="text-xs text-emerald-400 font-medium">Executado — {p.result_message}</p>;
+  if (p.status === "rejected") return <p className="text-xs text-zinc-500">Ignorado.</p>;
+  if (p.status !== "pending") return null;
+
+  if (p.copy_sugerida) {
+    return (
+      <ApprovalCard
+        clientSlug={clientSlug} date={date} adId={p.ad_id} platform={platform}
+        adName={p.ad_name}
+        imageBase64={p.copy_sugerida.image_base64}
+        versaoA={p.copy_sugerida.versao_a} versaoB={p.copy_sugerida.versao_b}
+        initialStatus={p.status} resultMessage={p.result_message} reportKey={reportKey}
+      />
+    );
+  }
+  if (isCreativeAdjust) {
+    return (
+      <GenerateCopyButton
+        clientSlug={clientSlug} date={date} adId={p.ad_id} platform={platform}
+        reportKey={reportKey} verdict={p.verdict as "ajustar" | "testar_variacao"}
+      />
+    );
+  }
+  if (isManualAdjust && p.ajuste_tipo === "publico" && (action.type === "create_adset" || action.type === "update_adset_targeting")) {
+    return (
+      <TargetingChangeCard
+        clientSlug={clientSlug} date={date} adId={p.ad_id} reportKey={reportKey}
+        targetingSummaryOld={p.adset_name}
+        targetingSummaryNew={action.targeting_summary_new}
+        adsetNameNew={action.type === "create_adset" ? action.adset_name : undefined}
+        actionType={action.type === "create_adset" ? "create_adset" : "update_targeting"}
+        initialStatus={p.status} initialResultMessage={p.result_message}
+      />
+    );
+  }
+  if (isManualAdjust) {
+    return (
+      <MarkDoneButton
+        clientSlug={clientSlug} date={date} adId={p.ad_id} platform={platform}
+        reportKey={reportKey} ajusteTipo={p.ajuste_tipo!}
+      />
+    );
+  }
+  if (isPauseScale) {
+    return (
+      <ActionButton
+        clientSlug={clientSlug} date={date} adId={p.ad_id} platform={platform}
+        actionType={p.verdict === "pausar" ? "pause" : "scale"}
+        label={
+          p.verdict === "pausar"
+            ? "Pausar anúncio"
+            : scaleBudget
+            ? `Escalar para ${(scaleBudget.new_budget_cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}/dia`
+            : "Escalar"
+        }
+        reportKey={reportKey}
+        initialStatus={p.status} initialResultMessage={p.result_message}
+      />
+    );
+  }
+  return null;
+}
+
 function ProposalRow({
   p, clientSlug, date, reportKey, platform = "meta",
 }: {
@@ -380,13 +456,10 @@ export default async function DailyReportPage({
                         analysis={c}
                         proposals={(metaPropsByCamp.get(c.campaign_name) ?? []).filter(p => p.status === "pending")}
                         renderProposal={(p) => (
-                          <ProposalRow
-                            p={p}
-                            clientSlug={report.client_slug}
-                            date={date}
-                            reportKey={reportKey}
-                            platform="meta"
-                          />
+                          <ProposalRow p={p} clientSlug={report.client_slug} date={date} reportKey={reportKey} platform="meta" />
+                        )}
+                        renderAction={(p) => (
+                          <ProposalActions p={p} clientSlug={report.client_slug} date={date} reportKey={reportKey} platform="meta" />
                         )}
                       />
                     ))}
@@ -396,13 +469,10 @@ export default async function DailyReportPage({
                         analysis={c}
                         proposals={(googlePropsByCamp.get(c.campaign_name) ?? []).filter(p => p.status === "pending")}
                         renderProposal={(p) => (
-                          <ProposalRow
-                            p={p}
-                            clientSlug={report.client_slug}
-                            date={date}
-                            reportKey={reportKey}
-                            platform="google"
-                          />
+                          <ProposalRow p={p} clientSlug={report.client_slug} date={date} reportKey={reportKey} platform="google" />
+                        )}
+                        renderAction={(p) => (
+                          <ProposalActions p={p} clientSlug={report.client_slug} date={date} reportKey={reportKey} platform="google" />
                         )}
                       />
                     ))}
