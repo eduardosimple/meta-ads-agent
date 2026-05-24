@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getReportsByDate } from "@/lib/reports-store";
+import { todayBR, nDaysAgoBR } from "@/lib/date-br";
 
 export const maxDuration = 30;
 
-// GET /api/cron/pending-creatives?days=2
-// Lista proposals com status "creative_requested" (pedidos de recriação de
-// criativo feitos no portal) para o poller local acionar o orquestrador.
-// Auth: Bearer CRON_SECRET.
+const STALE_GENERATING_MIN = 15;
+
+/**
+ * GET /api/cron/pending-creatives?days=2&include_stale=true
+ *  - status="creative_requested" → pedido novo (CreateCreativeCard click).
+ *  - status="generating" com resolved_at > 15min (se include_stale) → órfão; retry.
+ */
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -14,9 +18,10 @@ export async function GET(req: NextRequest) {
   }
 
   const days = Math.min(7, Math.max(1, parseInt(req.nextUrl.searchParams.get("days") ?? "2", 10)));
+  const includeStale = req.nextUrl.searchParams.get("include_stale") === "true";
   const dates: string[] = [];
   for (let i = 0; i < days; i++) {
-    dates.push(new Date(Date.now() - i * 86400000).toISOString().split("T")[0]);
+    dates.push(i === 0 ? todayBR() : nDaysAgoBR(i));
   }
 
   const pending: Array<{
@@ -28,7 +33,11 @@ export async function GET(req: NextRequest) {
     worst_ad_name: string;
     diagnostico: string;
     best_ad_id?: string;
+    status: string;
+    stale?: boolean;
   }> = [];
+
+  const staleCutoff = Date.now() - STALE_GENERATING_MIN * 60 * 1000;
 
   for (const date of dates) {
     let reports;
@@ -42,18 +51,31 @@ export async function GET(req: NextRequest) {
         const analysis = r[platform];
         if (!analysis) continue;
         for (const p of analysis.proposals) {
+          let stale = false;
           if (p.status === "creative_requested") {
-            pending.push({
-              slug: r.client_slug,
-              client_name: r.client_name,
-              date,
-              platform,
-              worst_ad_id: p.ad_id,
-              worst_ad_name: p.ad_name,
-              diagnostico: p.diagnostico,
-              best_ad_id: p.best_ad_id,
-            });
+            // sempre inclui
+          } else if (p.status === "generating" && includeStale) {
+            const resolvedAt = p.resolved_at ? new Date(p.resolved_at).getTime() : 0;
+            if (resolvedAt > 0 && resolvedAt < staleCutoff) {
+              stale = true;
+            } else {
+              continue;
+            }
+          } else {
+            continue;
           }
+          pending.push({
+            slug: r.client_slug,
+            client_name: r.client_name,
+            date,
+            platform,
+            worst_ad_id: p.ad_id,
+            worst_ad_name: p.ad_name,
+            diagnostico: p.diagnostico,
+            best_ad_id: p.best_ad_id,
+            status: p.status,
+            ...(stale ? { stale: true } : {}),
+          });
         }
       }
     }
