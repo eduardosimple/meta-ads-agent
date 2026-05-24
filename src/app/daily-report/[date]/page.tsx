@@ -10,6 +10,7 @@ import GenerateCopyButton from "@/components/report/GenerateCopyButton";
 import MarkDoneButton from "@/components/report/MarkDoneButton";
 import TargetingChangeCard from "@/components/report/TargetingChangeCard";
 import CampaignCard from "@/components/report/CampaignCard";
+import ClientErrorBoundary from "@/components/report/ClientErrorBoundary";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -302,7 +303,7 @@ export default async function DailyReportPage({
           </div>
         )}
 
-        {/* Clientes — try/catch por cliente: um malformado não derruba o resto */}
+        {/* Clientes — ErrorBoundary por cliente: um malformado não derruba o resto */}
         {enriched.map(({ report, idx, metaProposals, googleProposals, pending, pendingActionable, status }) => {
           try {
           const brief = briefs[idx];
@@ -330,8 +331,8 @@ export default async function DailyReportPage({
           const planoAcao = report.meta?.plano_de_acao ?? [];
 
           return (
+            <ClientErrorBoundary key={report.id} clientName={report.client_name}>
             <details
-              key={report.id}
               className={`group bg-[#18181b] rounded-2xl border-2 overflow-hidden ${status.ring}`}
             >
               <summary className="px-5 py-3.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden hover:bg-zinc-900/40 transition-colors group-open:border-b group-open:border-[#1c1c20]">
@@ -475,6 +476,7 @@ export default async function DailyReportPage({
                 )}
               </div>
             </details>
+            </ClientErrorBoundary>
           );
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
