@@ -91,6 +91,21 @@ function ProposalActions({
   if (p.status === "rejected") return <p className="text-xs text-zinc-500">Ignorado.</p>;
   if (p.status !== "pending") return null;
 
+  // PRIORIDADE: troca de público vem ANTES de creative-com-copy. A ação é a
+  // fonte de verdade — copy_sugerida pode aparecer por engano em proposal de
+  // público; o componente correto depende da AÇÃO, não da copy.
+  if (action.type === "create_adset" || action.type === "update_adset_targeting") {
+    return (
+      <TargetingChangeCard
+        clientSlug={clientSlug} date={date} adId={p.ad_id} reportKey={reportKey}
+        targetingSummaryOld={p.adset_name}
+        targetingSummaryNew={action.targeting_summary_new}
+        adsetNameNew={action.type === "create_adset" ? action.adset_name : undefined}
+        actionType={action.type === "create_adset" ? "create_adset" : "update_targeting"}
+        initialStatus={p.status} initialResultMessage={p.result_message}
+      />
+    );
+  }
   if (p.copy_sugerida) {
     return (
       <ApprovalCard
@@ -107,18 +122,6 @@ function ProposalActions({
       <GenerateCopyButton
         clientSlug={clientSlug} date={date} adId={p.ad_id} platform={platform}
         reportKey={reportKey} verdict={p.verdict as "ajustar" | "testar_variacao"}
-      />
-    );
-  }
-  if (isManualAdjust && p.ajuste_tipo === "publico" && (action.type === "create_adset" || action.type === "update_adset_targeting")) {
-    return (
-      <TargetingChangeCard
-        clientSlug={clientSlug} date={date} adId={p.ad_id} reportKey={reportKey}
-        targetingSummaryOld={p.adset_name}
-        targetingSummaryNew={action.targeting_summary_new}
-        adsetNameNew={action.type === "create_adset" ? action.adset_name : undefined}
-        actionType={action.type === "create_adset" ? "create_adset" : "update_targeting"}
-        initialStatus={p.status} initialResultMessage={p.result_message}
       />
     );
   }

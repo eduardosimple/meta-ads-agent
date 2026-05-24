@@ -33,6 +33,7 @@ export async function GET(req: NextRequest) {
     worst_ad_name: string;
     diagnostico: string;
     best_ad_id?: string;
+    refinement_feedback?: string;
     status: string;
     stale?: boolean;
   }> = [];
@@ -73,6 +74,7 @@ export async function GET(req: NextRequest) {
             worst_ad_name: p.ad_name,
             diagnostico: p.diagnostico,
             best_ad_id: p.best_ad_id,
+            refinement_feedback: p.refinement_feedback,
             status: p.status,
             ...(stale ? { stale: true } : {}),
           });

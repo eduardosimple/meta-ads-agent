@@ -90,6 +90,9 @@ export interface Proposal {
   budget_sugerido_cents?: number;
   /** Set quando status="creative_requested": id do melhor anúncio da conta usado como referência. */
   best_ad_id?: string;
+  /** Feedback do gestor para refinar a copy — passado ao conteudo-agent quando
+   * o usuário pede "menos texto", "foca na localização", "urgência maior", etc. */
+  refinement_feedback?: string;
 }
 
 export interface ActionItem {
