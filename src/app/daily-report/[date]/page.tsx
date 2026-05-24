@@ -302,8 +302,9 @@ export default async function DailyReportPage({
           </div>
         )}
 
-        {/* Clientes */}
+        {/* Clientes — try/catch por cliente: um malformado não derruba o resto */}
         {enriched.map(({ report, idx, metaProposals, googleProposals, pending, pendingActionable, status }) => {
+          try {
           const brief = briefs[idx];
           const metaCampaigns = report.meta?.campaigns_analysis ?? [];
           const googleCampaigns = report.google?.campaigns_analysis ?? [];
@@ -475,6 +476,18 @@ export default async function DailyReportPage({
               </div>
             </details>
           );
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            const stack = e instanceof Error ? (e.stack ?? "") : "";
+            console.error(`[daily-report] crash client=${report.client_slug}`, msg, "\n", stack);
+            return (
+              <div key={report.id} className="bg-[#18181b] border border-rose-500/30 rounded-2xl p-4 space-y-1.5">
+                <p className="text-[11px] tracking-[0.22em] uppercase text-rose-400 font-medium">Erro neste cliente</p>
+                <p className="text-sm text-zinc-100 font-semibold">{report.client_name}</p>
+                <p className="text-xs text-zinc-400 font-mono break-all">{msg}</p>
+              </div>
+            );
+          }
         })}
 
         <p className="text-center text-[10px] tracking-[0.22em] uppercase text-zinc-700 pb-6">
