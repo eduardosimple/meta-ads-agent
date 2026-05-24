@@ -60,6 +60,28 @@ export default function CampaignCard({
     if (p.adset_name) propByAdsetName.set(p.adset_name, p);
   }
 
+  // Dedup anúncios — Claude às vezes lista o mesmo ad várias vezes com
+  // papéis conflitantes. Pegar 1 ocorrência por ad_id, escolhendo o papel
+  // mais urgente (papelRank menor = mais urgente).
+  const papelRank: Record<string, number> = { pausar: 0, substituir: 1, escalar: 2, testar: 3, manter: 4 };
+  const anunciosDedup = Array.from(
+    anuncios.reduce((acc, a) => {
+      if (!a?.ad_id) return acc;
+      const cur = acc.get(a.ad_id);
+      if (!cur || (papelRank[a.papel] ?? 9) < (papelRank[cur.papel] ?? 9)) acc.set(a.ad_id, a);
+      return acc;
+    }, new Map<string, typeof anuncios[number]>()).values()
+  );
+  // Mesmo dedup para públicos (por adset_id)
+  const publicosDedup = Array.from(
+    publicos.reduce((acc, p) => {
+      if (!p?.adset_id) return acc;
+      const cur = acc.get(p.adset_id);
+      if (!cur || p.papel === "trocar") acc.set(p.adset_id, p);
+      return acc;
+    }, new Map<string, typeof publicos[number]>()).values()
+  );
+
   return (
     <div className="bg-[#18181b] border border-[#1c1c20] rounded-2xl overflow-hidden">
       {/* Cabeçalho */}
@@ -90,13 +112,13 @@ export default function CampaignCard({
       </div>
 
       {/* Anúncios da campanha — explicita o papel de cada ad */}
-      {anuncios.length > 0 && (
+      {anunciosDedup.length > 0 && (
         <div className="px-5 py-4 border-t border-[#1c1c20] space-y-2.5">
           <p className="text-[10px] tracking-[0.22em] uppercase text-zinc-500 font-medium">
-            Anúncios da campanha ({anuncios.length})
+            Anúncios da campanha ({anunciosDedup.length})
           </p>
           <ul className="space-y-2">
-            {anuncios.map((a) => {
+            {anunciosDedup.map((a) => {
               const tone = papelAdTone[a.papel] ?? papelAdTone.manter;
               const linkedProp = propByAdId.get(a.ad_id);
               return (
@@ -128,13 +150,13 @@ export default function CampaignCard({
       )}
 
       {/* Públicos da campanha — manter ou trocar (com substituto especificado) */}
-      {publicos.length > 0 && (
+      {publicosDedup.length > 0 && (
         <div className="px-5 py-4 border-t border-[#1c1c20] space-y-2.5">
           <p className="text-[10px] tracking-[0.22em] uppercase text-zinc-500 font-medium">
-            Públicos da campanha ({publicos.length})
+            Públicos da campanha ({publicosDedup.length})
           </p>
           <ul className="space-y-2">
-            {publicos.map((p) => {
+            {publicosDedup.map((p) => {
               const tone = papelPublicoTone[p.papel] ?? papelPublicoTone.manter;
               const linkedProp = propByAdsetName.get(p.adset_name);
               return (
