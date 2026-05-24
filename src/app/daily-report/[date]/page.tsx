@@ -81,7 +81,9 @@ function ProposalRow({
   const isPauseScale = p.verdict === "pausar" || p.verdict === "escalar";
   const isCreativeAdjust = p.verdict === "testar_variacao" || (p.verdict === "ajustar" && (!p.ajuste_tipo || p.ajuste_tipo === "criativo"));
   const isManualAdjust = p.verdict === "ajustar" && p.ajuste_tipo && p.ajuste_tipo !== "criativo";
-  const scaleBudget = p.action.type === "scale_budget" ? p.action : null;
+  const action = p.action ?? { type: "none" as const };
+  const scaleBudget = action.type === "scale_budget" ? action : null;
+  const metricas = p.metricas_problema ?? [];
 
   return (
     <div className="rounded-xl border border-[#1c1c20] bg-[#0f0f12] px-3 py-2.5 space-y-1.5">
@@ -98,9 +100,9 @@ function ProposalRow({
         </span>
       </div>
       <p className="text-xs text-zinc-300 leading-snug">{p.diagnostico}</p>
-      {p.metricas_problema.length > 0 && (
+      {metricas.length > 0 && (
         <div className="flex flex-wrap gap-1">
-          {p.metricas_problema.slice(0, 4).map((m, i) => (
+          {metricas.slice(0, 4).map((m, i) => (
             <span key={i} className="text-[10px] px-1.5 py-0.5 bg-zinc-800/60 border border-zinc-800 rounded text-zinc-400 font-mono">{m}</span>
           ))}
         </div>
@@ -141,21 +143,21 @@ function ProposalRow({
           verdict={p.verdict as "ajustar" | "testar_variacao"}
         />
       )}
-      {p.status === "pending" && isManualAdjust && p.ajuste_tipo === "publico" && (p.action.type === "create_adset" || p.action.type === "update_adset_targeting") && (
+      {p.status === "pending" && isManualAdjust && p.ajuste_tipo === "publico" && (action.type === "create_adset" || action.type === "update_adset_targeting") && (
         <TargetingChangeCard
           clientSlug={clientSlug}
           date={date}
           adId={p.ad_id}
           reportKey={reportKey}
           targetingSummaryOld={p.adset_name}
-          targetingSummaryNew={p.action.targeting_summary_new}
-          adsetNameNew={p.action.type === "create_adset" ? p.action.adset_name : undefined}
-          actionType={p.action.type === "create_adset" ? "create_adset" : "update_targeting"}
+          targetingSummaryNew={action.targeting_summary_new}
+          adsetNameNew={action.type === "create_adset" ? action.adset_name : undefined}
+          actionType={action.type === "create_adset" ? "create_adset" : "update_targeting"}
           initialStatus={p.status}
           initialResultMessage={p.result_message}
         />
       )}
-      {p.status === "pending" && isManualAdjust && (p.ajuste_tipo !== "publico" || (p.action.type !== "create_adset" && p.action.type !== "update_adset_targeting")) && (
+      {p.status === "pending" && isManualAdjust && (p.ajuste_tipo !== "publico" || (action.type !== "create_adset" && action.type !== "update_adset_targeting")) && (
         <MarkDoneButton
           clientSlug={clientSlug}
           date={date}

@@ -67,9 +67,9 @@ export default function CampaignCard({
 
       {/* 3 colunas: BOM | RUIM | MUDAR */}
       <div className="grid grid-cols-1 sm:grid-cols-3 sm:divide-x divide-[#1c1c20]">
-        <Col eyebrow="BOM" colorCls="text-[#86efac]" items={analysis.pontos_bons} />
-        <Col eyebrow="RUIM" colorCls="text-[#fda4af]" items={analysis.pontos_ruins} />
-        <Col eyebrow="MUDAR" colorCls="text-[#fcd34d]" items={analysis.o_que_mudar} />
+        <Col eyebrow="BOM" colorCls="text-[#86efac]" items={analysis.pontos_bons ?? []} />
+        <Col eyebrow="RUIM" colorCls="text-[#fda4af]" items={analysis.pontos_ruins ?? []} />
+        <Col eyebrow="MUDAR" colorCls="text-[#fcd34d]" items={analysis.o_que_mudar ?? []} />
       </div>
 
       {/* Anúncios da campanha — explicita o papel de cada ad */}
@@ -161,22 +161,22 @@ export default function CampaignCard({
             <div className="space-y-1 text-xs">
               <p className="text-zinc-400"><span className="text-zinc-500">Nome:</span> <span className="text-zinc-100 font-semibold">{analysis.nova_estrutura.nome}</span></p>
               <p className="text-zinc-400"><span className="text-zinc-500">Objetivo:</span> <span className="text-zinc-100 font-mono">{analysis.nova_estrutura.objetivo}</span></p>
-              <p className="text-zinc-400"><span className="text-zinc-500">Budget diário:</span> <span className="text-zinc-100 font-mono">{fmtBRL(analysis.nova_estrutura.daily_budget_cents / 100)}</span></p>
+              <p className="text-zinc-400"><span className="text-zinc-500">Budget diário:</span> <span className="text-zinc-100 font-mono">{fmtBRL((analysis.nova_estrutura.daily_budget_cents ?? 0) / 100)}</span></p>
               {analysis.nova_estrutura.notas && (
                 <p className="text-zinc-400 leading-relaxed pt-1"><span className="text-zinc-500">Notas:</span> {analysis.nova_estrutura.notas}</p>
               )}
             </div>
-            {analysis.nova_estrutura.adsets.length > 0 && (
+            {(analysis.nova_estrutura.adsets ?? []).length > 0 && (
               <div className="space-y-1.5">
                 <p className="text-[10px] tracking-[0.22em] uppercase text-zinc-500 font-medium">
-                  Conjuntos ({analysis.nova_estrutura.adsets.length})
+                  Conjuntos ({(analysis.nova_estrutura.adsets ?? []).length})
                 </p>
                 <div className="space-y-1.5">
-                  {analysis.nova_estrutura.adsets.map((a, i) => (
+                  {(analysis.nova_estrutura.adsets ?? []).map((a, i) => (
                     <div key={i} className="bg-[#18181b] border border-[#1c1c20] rounded-lg px-3 py-2 text-xs">
-                      <p className="text-zinc-200 font-semibold">{a.nome}</p>
-                      <p className="text-zinc-400 mt-0.5">{a.targeting_summary}</p>
-                      {a.daily_budget_cents !== undefined && (
+                      <p className="text-zinc-200 font-semibold">{a?.nome ?? "—"}</p>
+                      <p className="text-zinc-400 mt-0.5">{a?.targeting_summary ?? ""}</p>
+                      {a?.daily_budget_cents !== undefined && a?.daily_budget_cents !== null && (
                         <p className="text-zinc-500 mt-0.5 font-mono">{fmtBRL(a.daily_budget_cents / 100)}/dia</p>
                       )}
                     </div>
@@ -184,26 +184,26 @@ export default function CampaignCard({
                 </div>
               </div>
             )}
-            {analysis.nova_estrutura.ads && analysis.nova_estrutura.ads.length > 0 && (
+            {(analysis.nova_estrutura.ads ?? []).length > 0 && (
               <div className="space-y-1.5">
                 <p className="text-[10px] tracking-[0.22em] uppercase text-zinc-500 font-medium">
-                  Anúncios novos ({analysis.nova_estrutura.ads.length})
+                  Anúncios novos ({(analysis.nova_estrutura.ads ?? []).length})
                 </p>
                 <div className="space-y-1.5">
-                  {analysis.nova_estrutura.ads.map((ad, i) => (
+                  {(analysis.nova_estrutura.ads ?? []).map((ad, i) => (
                     <div key={i} className="bg-[#18181b] border border-[#1c1c20] rounded-lg px-3 py-2 text-xs space-y-1">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-zinc-200 font-semibold truncate">{ad.nome_proposto}</p>
-                        {ad.referencia_ad_id && (
+                        <p className="text-zinc-200 font-semibold truncate">{ad?.nome_proposto ?? "—"}</p>
+                        {ad?.referencia_ad_id && (
                           <span className="shrink-0 text-[10px] font-mono text-zinc-500">ref: {ad.referencia_ad_id.slice(-6)}</span>
                         )}
                       </div>
                       <div className="space-y-0.5 pl-2 border-l-2 border-[#1c1c20]">
-                        <p className="text-zinc-300"><span className="text-zinc-500">headline:</span> {ad.copy.headline}</p>
-                        <p className="text-zinc-300"><span className="text-zinc-500">texto:</span> {ad.copy.texto}</p>
-                        <p className="text-zinc-400 font-mono"><span className="text-zinc-500">cta:</span> {ad.copy.cta}</p>
+                        <p className="text-zinc-300"><span className="text-zinc-500">headline:</span> {ad?.copy?.headline ?? ""}</p>
+                        <p className="text-zinc-300"><span className="text-zinc-500">texto:</span> {ad?.copy?.texto ?? ""}</p>
+                        <p className="text-zinc-400 font-mono"><span className="text-zinc-500">cta:</span> {ad?.copy?.cta ?? ""}</p>
                       </div>
-                      {ad.notas_visual && (
+                      {ad?.notas_visual && (
                         <p className="text-amber-300/80 italic pt-1">visual: {ad.notas_visual}</p>
                       )}
                     </div>
