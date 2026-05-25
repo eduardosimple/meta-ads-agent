@@ -233,10 +233,10 @@ Campanhas PAUSED/ARCHIVED não precisam estar em campaigns_analysis (mas o hist�
 
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
-    // Subido de 4096 → 16384 porque o novo schema (anuncios[]+publicos[] por
-    // campanha) gera muito mais output e estava truncando (campaigns_analysis
-    // vazio para contas com 8+ campanhas).
-    max_tokens: 16384,
+    // 8192 (era 16384): corte de custo de API. Em contas com 8+ campanhas o
+    // array de proposals pode truncar; solução de longo prazo é migrar o
+    // analyzer pro Claude Code local (plano em vez de API).
+    max_tokens: 8192,
     system: systemPrompt,
     tools: [{
       name: "retornar_analise",
