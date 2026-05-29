@@ -21,12 +21,19 @@ interface Props {
   initialStatus: string;
   resultMessage?: string;
   reportKey: string;
+  /** Quando "new_ad_in_adset", aprovar CRIA ad novo no adset (adId vira adset_id).
+   *  Default "replace_ad" mantém comportamento histórico (substitui ad). */
+  requestTarget?: "replace_ad" | "new_ad_in_adset";
+  targetAdsetId?: string;
 }
 
 export default function ApprovalCard({
   clientSlug, date, adId, platform, imageBase64,
   versaoA, versaoB, initialStatus, resultMessage, reportKey,
+  requestTarget, targetAdsetId,
 }: Props) {
+  const isNewMode = requestTarget === "new_ad_in_adset";
+  const adsetIdForNew = targetAdsetId ?? (isNewMode ? adId : undefined);
   const [selected, setSelected] = useState<"a" | "b">("a");
   const [status, setStatus] = useState(initialStatus);
   const [result, setResult] = useState(resultMessage ?? "");
@@ -39,17 +46,57 @@ export default function ApprovalCard({
   async function approve() {
     setLoading(true);
     try {
-      const res = await fetch(`/api/daily-reports/${clientSlug}/proposals/approve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-report-key": reportKey },
-        body: JSON.stringify({ date, ad_id: adId, platform, versao: selected }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setStatus("approved");
-        setResult(`Novo anuncio: ${data.new_ad_id}. Original pausado.`);
+      if (isNewMode && adsetIdForNew) {
+        // MODO B — criar ad NOVO no adset (Ação 5). Não substitui nada.
+        if (!imageBase64) throw new Error("Imagem não disponível pra criar ad novo");
+        // Pra descobrir o campaign_id do adset, consultamos list-targets do cliente
+        const lt = await fetch(`/api/creatives/list-targets?slug=${encodeURIComponent(clientSlug)}&view_key=${encodeURIComponent(reportKey)}`);
+        const ltData = await lt.json();
+        const adset = (ltData.adsets ?? []).find((a: { id: string; campaign_id: string }) => a.id === adsetIdForNew);
+        const campaignId = adset?.campaign_id;
+        if (!campaignId) throw new Error(`Adset ${adsetIdForNew} não encontrado entre ativos`);
+        const chosen = selected === "a" ? versaoA : versaoB;
+        const res = await fetch("/api/creatives/upload-and-deploy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            view_key: reportKey,
+            slug: clientSlug,
+            campaign_id: campaignId,
+            adset_id: adsetIdForNew,
+            headline: chosen.headline,
+            texto: chosen.texto,
+            cta: chosen.cta,
+            image_base64: imageBase64,
+          }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          setStatus("approved");
+          setResult(`Ad NOVO criado no GA: ${data.ad_id} (PAUSED). Revise no Meta.`);
+          // Marca proposal como approved
+          await fetch(`/api/daily-reports/${clientSlug}/proposals`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", "x-report-key": reportKey },
+            body: JSON.stringify({ date, ad_id: adId, platform, status: "approved" }),
+          });
+        } else {
+          setResult(`Erro: ${data.message ?? data.error}`);
+        }
       } else {
-        setResult(`Erro: ${data.error}`);
+        // MODO A — substitui ad existente (fluxo histórico)
+        const res = await fetch(`/api/daily-reports/${clientSlug}/proposals/approve`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-report-key": reportKey },
+          body: JSON.stringify({ date, ad_id: adId, platform, versao: selected }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          setStatus("approved");
+          setResult(`Novo anuncio: ${data.new_ad_id}. Original pausado.`);
+        } else {
+          setResult(`Erro: ${data.error}`);
+        }
       }
     } catch (e) {
       setResult(`Erro: ${e}`);
@@ -174,7 +221,11 @@ export default function ApprovalCard({
             disabled={loading || refining}
             className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-[#7c3aed] to-[#3b82f6] hover:opacity-90 disabled:opacity-50 transition-all shadow-[0_4px_20px_-4px_rgba(124,58,237,0.4)]"
           >
-            {loading ? "Publicando..." : `Aprovar Versão ${selected.toUpperCase()} e Publicar`}
+            {loading
+              ? (isNewMode ? "Criando ad novo..." : "Publicando...")
+              : isNewMode
+                ? `Aprovar Versão ${selected.toUpperCase()} e Criar Ad NOVO no GA`
+                : `Aprovar Versão ${selected.toUpperCase()} e Publicar`}
           </button>
           <button
             onClick={reject}

@@ -163,6 +163,39 @@ export interface CampaignAnalysis {
   nova_estrutura?: NovaCampanhaSpec;
 }
 
+/** Item do checklist da Revisão Diária (escopo ClickUp). */
+export interface ChecklistSubAction {
+  /** Texto livre — descrição da sub-ação proposta. */
+  descricao: string;
+  /** IDs relevantes (opcional). */
+  ad_id?: string;
+  ad_name?: string;
+  adset_id?: string;
+  adset_name?: string;
+  /** Métricas relevantes pro contexto (opcional). */
+  cpl_atual?: number;
+  daily_budget_atual?: number;
+  daily_budget_sugerido?: number;
+  ads_ativos_atual?: number;
+  ads_faltantes?: number;
+  /** Sugestões textuais (pra ação 2 e 5). */
+  sugestao_novo_criativo?: string;
+  sugestao_novo_publico?: string;
+  motivo?: string;
+  /** Action concreta se UI for executar (pause_ad, scale_budget, etc) */
+  action?: ProposalAction;
+}
+
+export interface ChecklistAction {
+  /** ID estável da ação (1..5) pra UI casar com ícone certo. */
+  id: number;
+  titulo: string;
+  /** "check" = tudo ok. "atencao" = tem sub_acoes. "verificar_manual" = exige humano. */
+  status: "check" | "atencao" | "verificar_manual";
+  resumo: string;
+  sub_acoes: ChecklistSubAction[];
+}
+
 export interface AnalysisResult {
   client_slug: string;
   analyzed_at: string;
@@ -170,6 +203,8 @@ export interface AnalysisResult {
   alerts: Alert[];
   summary_text: string;
   plano_de_acao?: ActionItem[];
+  /** Checklist da Revisão Diária (formato ClickUp). Sempre 5 ações. */
+  checklist?: ChecklistAction[];
   /** Análise estruturada por campanha (gerada pelo analyzer). Opcional para
    * compatibilidade com relatórios antigos — UI cai no view flat se ausente. */
   campaigns_analysis?: CampaignAnalysis[];

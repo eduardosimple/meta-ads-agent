@@ -10,6 +10,7 @@ import GenerateCopyButton from "@/components/report/GenerateCopyButton";
 import MarkDoneButton from "@/components/report/MarkDoneButton";
 import TargetingChangeCard from "@/components/report/TargetingChangeCard";
 import CampaignCard from "@/components/report/CampaignCard";
+import ChecklistRevisao from "@/components/report/ChecklistRevisao";
 import ClientErrorBoundary from "@/components/report/ClientErrorBoundary";
 
 export const dynamic = "force-dynamic";
@@ -107,6 +108,7 @@ function ProposalActions({
     );
   }
   if (p.copy_sugerida) {
+    const extra = p as unknown as { request_target?: "replace_ad" | "new_ad_in_adset"; target_adset_id?: string };
     return (
       <ApprovalCard
         clientSlug={clientSlug} date={date} adId={p.ad_id} platform={platform}
@@ -114,6 +116,8 @@ function ProposalActions({
         imageBase64={p.copy_sugerida.image_base64}
         versaoA={p.copy_sugerida.versao_a} versaoB={p.copy_sugerida.versao_b}
         initialStatus={p.status} resultMessage={p.result_message} reportKey={reportKey}
+        requestTarget={extra.request_target}
+        targetAdsetId={extra.target_adset_id}
       />
     );
   }
@@ -227,21 +231,26 @@ function ProposalRow({
         <p className="text-xs text-zinc-500">Ignorado.</p>
       )}
 
-      {p.status === "pending" && p.copy_sugerida && (
-        <ApprovalCard
-          clientSlug={clientSlug}
-          date={date}
-          adId={p.ad_id}
-          platform={platform}
-          adName={p.ad_name}
-          imageBase64={p.copy_sugerida.image_base64}
-          versaoA={p.copy_sugerida.versao_a}
-          versaoB={p.copy_sugerida.versao_b}
-          initialStatus={p.status}
-          resultMessage={p.result_message}
-          reportKey={reportKey}
-        />
-      )}
+      {p.status === "pending" && p.copy_sugerida && (() => {
+        const extra = p as unknown as { request_target?: "replace_ad" | "new_ad_in_adset"; target_adset_id?: string };
+        return (
+          <ApprovalCard
+            clientSlug={clientSlug}
+            date={date}
+            adId={p.ad_id}
+            platform={platform}
+            adName={p.ad_name}
+            imageBase64={p.copy_sugerida.image_base64}
+            versaoA={p.copy_sugerida.versao_a}
+            versaoB={p.copy_sugerida.versao_b}
+            initialStatus={p.status}
+            resultMessage={p.result_message}
+            reportKey={reportKey}
+            requestTarget={extra.request_target}
+            targetAdsetId={extra.target_adset_id}
+          />
+        );
+      })()}
       {p.status === "pending" && !p.copy_sugerida && isCreativeAdjust && (
         <GenerateCopyButton
           clientSlug={clientSlug}
@@ -411,6 +420,56 @@ export default async function DailyReportPage({
           </div>
         )}
 
+        {/* Dashboard agregado de checklists — bate o olho e vê quem precisa atenção */}
+        {(() => {
+          const rows = enriched
+            .map(({ report }) => {
+              const cl = [...(report.meta?.checklist ?? []), ...(report.google?.checklist ?? [])];
+              if (cl.length === 0) return null;
+              const ok = cl.filter(c => c.status === "check").length;
+              const att = cl.filter(c => c.status === "atencao").length;
+              const man = cl.filter(c => c.status === "verificar_manual").length;
+              const subTotal = cl.reduce((s, c) => s + (c.sub_acoes?.length ?? 0), 0);
+              return { slug: report.client_slug, name: report.client_name, ok, att, man, total: cl.length, subTotal };
+            })
+            .filter((r): r is NonNullable<typeof r> => r !== null)
+            .sort((a, b) => b.att - a.att || b.subTotal - a.subTotal);
+          if (rows.length === 0) return null;
+          const totalAtt = rows.reduce((s, r) => s + r.att, 0);
+          const totalSub = rows.reduce((s, r) => s + r.subTotal, 0);
+          return (
+            <div className="mb-4 border-2 border-amber-500/30 rounded-2xl bg-gradient-to-br from-[#1a1410] to-[#0e0e10] overflow-hidden">
+              <div className="px-5 py-3 border-b border-amber-500/20 flex items-baseline justify-between bg-amber-500/5">
+                <h3 className="font-bold text-base text-amber-100 flex items-center gap-2">📋 Checklist da Revisão Diária — visão geral</h3>
+                <p className="text-xs text-zinc-400">{rows.length} clientes · <b className="text-amber-300">{totalAtt}</b> ações pendentes ({totalSub} sub-itens)</p>
+              </div>
+              <div className="p-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                {rows.map(r => (
+                  <a href={`#${r.slug}`} key={r.slug} className={`block px-3 py-2 rounded-lg border text-sm transition hover:brightness-125 ${
+                    r.att > 0
+                      ? "border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/15"
+                      : r.man > 0
+                      ? "border-blue-500/30 bg-blue-500/5 hover:bg-blue-500/10"
+                      : "border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10"
+                  }`}>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="font-medium text-zinc-100 truncate">{r.name}</span>
+                      <span className="text-[11px] font-mono shrink-0">
+                        <span className="text-emerald-300">{r.ok}✓</span>{" "}
+                        <span className={r.att > 0 ? "text-amber-300 font-bold" : "text-zinc-600"}>{r.att}!</span>{" "}
+                        <span className="text-blue-300">{r.man}?</span>
+                      </span>
+                    </div>
+                    {r.subTotal > 0 && (
+                      <p className="text-[11px] text-zinc-400 mt-0.5">{r.subTotal} item(s) pra agir</p>
+                    )}
+                  </a>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Clientes — ErrorBoundary por cliente: um malformado não derruba o resto */}
         {enriched.map(({ report, idx, metaProposals, googleProposals, pending, pendingActionable, status }) => {
           try {
@@ -441,7 +500,9 @@ export default async function DailyReportPage({
           return (
             <ClientErrorBoundary key={report.id} clientName={report.client_name}>
             <details
-              className={`group bg-[#18181b] rounded-2xl border-2 overflow-hidden ${status.ring}`}
+              id={report.client_slug}
+              open
+              className={`group bg-[#18181b] rounded-2xl border-2 overflow-hidden scroll-mt-4 ${status.ring}`}
             >
               <summary className="px-5 py-3.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden hover:bg-zinc-900/40 transition-colors group-open:border-b group-open:border-[#1c1c20]">
                 <div className="flex items-center justify-between gap-2">
@@ -475,10 +536,46 @@ export default async function DailyReportPage({
                     </>
                   )}
                   <span className="text-zinc-500">ações <span className={`font-bold ${pending.length > 0 ? "text-amber-300" : "text-zinc-200"}`}>{pending.length}</span></span>
+                  {/* Sumário inline do checklist 5 ações — fica visível mesmo collapsado */}
+                  {(() => {
+                    const cl = [...(report.meta?.checklist ?? []), ...(report.google?.checklist ?? [])];
+                    if (cl.length === 0) return null;
+                    const ok = cl.filter(c => c.status === "check").length;
+                    const att = cl.filter(c => c.status === "atencao").length;
+                    const man = cl.filter(c => c.status === "verificar_manual").length;
+                    return (
+                      <span className="text-zinc-500">
+                        checklist{" "}
+                        <span className="text-emerald-300 font-semibold">{ok}✓</span>
+                        {" · "}
+                        <span className={att > 0 ? "text-amber-300 font-semibold" : "text-zinc-500"}>{att}!</span>
+                        {" · "}
+                        <span className="text-blue-300 font-semibold">{man}?</span>
+                      </span>
+                    );
+                  })()}
                 </div>
               </summary>
 
               <div className="p-4 space-y-3">
+                {/* Checklist da Revisão Diária — formato ClickUp (5 ações). */}
+                {report.meta?.checklist && report.meta.checklist.length > 0 && (
+                  <ChecklistRevisao
+                    checklist={report.meta.checklist}
+                    slug={report.client_slug}
+                    clientName={report.client_name}
+                    viewKey={reportKey}
+                    dailyDate={date}
+                    proposals={report.meta.proposals ?? []}
+                  />
+                )}
+                {report.google?.checklist && report.google.checklist.length > 0 && (
+                  <ChecklistRevisao
+                    checklist={report.google.checklist}
+                    proposals={report.google.proposals ?? []}
+                  />
+                )}
+
                 {/* VIEW NOVO: por campanha */}
                 {hasCampaignAnalysis && (
                   <div className="space-y-3">

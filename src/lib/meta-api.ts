@@ -444,9 +444,19 @@ export async function getAdAdsetId(
 export async function getAdsetDetails(
   adsetId: string,
   accessToken: string
-): Promise<{ optimization_goal: string; destination_type?: string; daily_budget?: string }> {
-  const data = await metaFetch<{ optimization_goal: string; destination_type?: string; daily_budget?: string }>(
-    `/${adsetId}?fields=optimization_goal,destination_type,daily_budget&access_token=${encodeURIComponent(accessToken)}`
+): Promise<{
+  optimization_goal: string;
+  destination_type?: string;
+  daily_budget?: string;
+  campaign_id?: string;
+  targeting?: Record<string, unknown>;
+  name?: string;
+}> {
+  const data = await metaFetch<{
+    optimization_goal: string; destination_type?: string; daily_budget?: string;
+    campaign_id?: string; targeting?: Record<string, unknown>; name?: string;
+  }>(
+    `/${adsetId}?fields=optimization_goal,destination_type,daily_budget,campaign_id,targeting,name&access_token=${encodeURIComponent(accessToken)}`
   );
   return data;
 }

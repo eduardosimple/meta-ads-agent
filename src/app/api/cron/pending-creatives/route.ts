@@ -36,6 +36,10 @@ export async function GET(req: NextRequest) {
     refinement_feedback?: string;
     status: string;
     stale?: boolean;
+    /** "replace_ad" (default — substitui criativo do ad existente)
+     *  | "new_ad_in_adset" (cria ad NOVO no adset; worst_ad_id é o adset_id) */
+    request_target?: "replace_ad" | "new_ad_in_adset";
+    target_adset_id?: string;
   }> = [];
 
   const staleCutoff = Date.now() - STALE_GENERATING_MIN * 60 * 1000;
@@ -65,6 +69,11 @@ export async function GET(req: NextRequest) {
           } else {
             continue;
           }
+          // Flags pra discriminar replace_ad (default) de new_ad_in_adset
+          const extraneousP = p as unknown as { request_target?: string; target_adset_id?: string };
+          const requestTarget = extraneousP.request_target === "new_ad_in_adset"
+            ? "new_ad_in_adset"
+            : "replace_ad";
           pending.push({
             slug: r.client_slug,
             client_name: r.client_name,
@@ -76,6 +85,8 @@ export async function GET(req: NextRequest) {
             best_ad_id: p.best_ad_id,
             refinement_feedback: p.refinement_feedback,
             status: p.status,
+            request_target: requestTarget,
+            target_adset_id: extraneousP.target_adset_id,
             ...(stale ? { stale: true } : {}),
           });
         }
