@@ -53,14 +53,26 @@ export async function POST(req: NextRequest) {
 
   // Normaliza analysis: garante IDs, status default, arrays não-nulos
   const a = body.analysis;
-  const proposalsRaw: Proposal[] = (a.proposals ?? []).map(p => ({
-    ...p,
-    id: p.id || randomUUID(),
-    status: p.status || "pending",
-    created_at: p.created_at || new Date().toISOString(),
-    metricas_problema: p.metricas_problema ?? [],
-    action: p.action ?? { type: "none" },
-  }));
+  const proposalsRaw: Proposal[] = (a.proposals ?? []).map(p => {
+    let action = p.action ?? { type: "none" as const };
+    // Sanitiza scale_budget sem new_budget_cents válido: sem isso a UI mostrava
+    // "Escalar para R$ NaN/dia" e a execução quebrava. Vira "none" — o relatório
+    // ainda mostra o diagnóstico/ação_sugerida, sem botão de escalonamento quebrado.
+    if (action.type === "scale_budget") {
+      const cents = (action as { new_budget_cents?: number }).new_budget_cents;
+      if (typeof cents !== "number" || !Number.isFinite(cents) || cents <= 0) {
+        action = { type: "none" };
+      }
+    }
+    return {
+      ...p,
+      id: p.id || randomUUID(),
+      status: p.status || "pending",
+      created_at: p.created_at || new Date().toISOString(),
+      metricas_problema: p.metricas_problema ?? [],
+      action,
+    };
+  });
 
   // Filtra `pausar` cujo adset já está PAUSED no Meta
   const proposalsFiltered = body.adset_status

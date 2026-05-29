@@ -6,6 +6,7 @@
  * Dark theme alinhado ao restante do daily-report (zinc-950/900).
  */
 "use client";
+import { useState } from "react";
 import type { ChecklistAction, ChecklistSubAction, Proposal } from "@/types/metrics";
 import UploadCriativoModal from "@/components/creatives/UploadCriativoModal";
 import ApprovalCard from "@/components/report/ApprovalCard";
@@ -31,9 +32,101 @@ function fmtMoney(v?: number) {
   return `R$ ${v.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}`;
 }
 
-function SubAcaoItem({ s, slug, clientName, viewKey, showUploadButton, showAIButton, dailyDate, relatedProposals }: {
+/** Botão que EXECUTA a pausa do anúncio no Meta (via portal) — reusa o mesmo
+ *  endpoint do ActionButton, autenticado pelo view_key. A ação 2 da revisão
+ *  ("pausar CPA muito acima da média") precisa ser EXECUTADA, não só sugerida. */
+function PauseAdButton({ slug, viewKey, dailyDate, adId, adName }: {
+  slug: string; viewKey: string; dailyDate: string; adId: string; adName?: string;
+}) {
+  const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [msg, setMsg] = useState("");
+
+  if (state === "done") {
+    return <p className="text-[11px] text-emerald-300 font-medium mt-2">✓ Anúncio pausado{msg ? ` — ${msg}` : ""}</p>;
+  }
+
+  async function pause() {
+    if (!confirm(`Pausar o anúncio ${adName ?? adId} agora? A pausa é aplicada no Meta.`)) return;
+    setState("loading");
+    try {
+      const r = await fetch(`/api/daily-reports/${slug}/proposals/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-report-key": viewKey },
+        body: JSON.stringify({ date: dailyDate, ad_id: adId, platform: "meta", action_type: "pause" }),
+      });
+      const d = await r.json();
+      if (d.ok) { setState("done"); setMsg(d.result_message ?? ""); }
+      else { setState("error"); setMsg(d.error ?? "falha ao pausar"); }
+    } catch (e) { setState("error"); setMsg(String(e)); }
+  }
+
+  return (
+    <div className="mt-2">
+      <button
+        onClick={pause}
+        disabled={state === "loading"}
+        className="text-xs px-2.5 py-1 rounded border border-rose-500/40 bg-rose-500/15 hover:bg-rose-500/25 text-rose-200 font-semibold disabled:opacity-50"
+      >
+        {state === "loading" ? "Pausando..." : "Pausar anúncio"}
+      </button>
+      {state === "error" && <p className="text-[11px] text-rose-300 mt-1">Erro: {msg}</p>}
+    </div>
+  );
+}
+
+/** Botão que CRIA um conjunto-base pausado clonando a config do conjunto atual
+ *  (mesma campanha + criativos), pronto pra receber o novo público sugerido.
+ *  Nunca edita o conjunto existente (regra inviolável) — sempre cria novo, pausado. */
+function NovoPublicoButton({ slug, viewKey, dailyDate, adsetId, adsetName }: {
+  slug: string; viewKey: string; dailyDate: string; adsetId: string; adsetName?: string;
+}) {
+  const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [msg, setMsg] = useState("");
+
+  if (state === "done") {
+    return <p className="text-[11px] text-emerald-300 font-medium mt-2">✓ Conjunto-base criado (pausado){msg ? ` — ${msg}` : ""}</p>;
+  }
+
+  async function criar() {
+    if (!confirm("Criar um conjunto NOVO (pausado) clonando este, pra você ajustar o novo público no gerenciador? O conjunto atual não é alterado.")) return;
+    setState("loading");
+    try {
+      const r = await fetch("/api/proposals/execute-public", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          view_key: viewKey, slug,
+          period_kind: "week", period_id: dailyDate, proposal_index: -1,
+          action: "create_adset",
+          params: {
+            source_adset_id: adsetId,
+            name: `[NOVO PUBLICO] ${adsetName ?? adsetId} ${dailyDate}`,
+          },
+        }),
+      });
+      const d = await r.json();
+      if (d.ok || d.create_ok || d.result?.create_ok) { setState("done"); setMsg(d.result?.new_adset_id ? `id ${d.result.new_adset_id}` : ""); }
+      else { setState("error"); setMsg(d.message ?? d.error ?? "falha"); }
+    } catch (e) { setState("error"); setMsg(String(e)); }
+  }
+
+  return (
+    <div className="mt-1.5">
+      <button
+        onClick={criar}
+        disabled={state === "loading"}
+        className="text-xs px-2.5 py-1 rounded border border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 text-sky-200 disabled:opacity-50"
+      >
+        {state === "loading" ? "Criando..." : "Criar conjunto p/ novo público"}
+      </button>
+      {state === "error" && <p className="text-[11px] text-rose-300 mt-1">Erro: {msg}</p>}
+    </div>
+  );
+}
+
+function SubAcaoItem({ s, slug, clientName, viewKey, showUploadButton, showAIButton, showPauseButton, dailyDate, relatedProposals }: {
   s: ChecklistSubAction; slug?: string; clientName?: string; viewKey?: string;
-  showUploadButton?: boolean; showAIButton?: boolean; dailyDate?: string;
+  showUploadButton?: boolean; showAIButton?: boolean; showPauseButton?: boolean; dailyDate?: string;
   /** Proposals relacionadas a esse adset/ad — usadas pra renderizar
    *  o ApprovalCard inline assim que o pipeline IA termina. */
   relatedProposals?: Proposal[];
@@ -66,10 +159,21 @@ function SubAcaoItem({ s, slug, clientName, viewKey, showUploadButton, showAIBut
         )}
       </div>
       {s.motivo && <p className="text-[11px] text-zinc-500 mt-0.5"><i>{s.motivo}</i></p>}
+      {/* AÇÃO 2: pausa EXECUTÁVEL do anúncio com CPA fora da curva (não só sugestão). */}
+      {showPauseButton && s.ad_id && slug && viewKey && dailyDate && (
+        <PauseAdButton slug={slug} viewKey={viewKey} dailyDate={dailyDate} adId={s.ad_id} adName={s.ad_name} />
+      )}
       {(s.sugestao_novo_criativo || s.sugestao_novo_publico) && (
-        <div className="mt-1 text-[11px] space-y-0.5">
+        <div className="mt-1.5 text-[11px] space-y-1">
           {s.sugestao_novo_criativo && <p className="text-purple-300">→ Criativo: <span className="text-zinc-300">{s.sugestao_novo_criativo}</span></p>}
-          {s.sugestao_novo_publico && <p className="text-purple-300">→ Público: <span className="text-zinc-300">{s.sugestao_novo_publico}</span></p>}
+          {s.sugestao_novo_publico && (
+            <div className="space-y-0.5">
+              <p className="text-purple-300">→ Público: <span className="text-zinc-300">{s.sugestao_novo_publico}</span></p>
+              {showPauseButton && s.adset_id && slug && viewKey && dailyDate && (
+                <NovoPublicoButton slug={slug} viewKey={viewKey} dailyDate={dailyDate} adsetId={s.adset_id} adsetName={s.adset_name} />
+              )}
+            </div>
+          )}
         </div>
       )}
       {(showUploadButton || showAIButton) && slug && clientName && viewKey && (
@@ -236,10 +340,11 @@ export default function ChecklistRevisao({
                           viewKey={viewKey}
                           dailyDate={dailyDate}
                           relatedProposals={proposals}
-                          // Ação 2 (CPA alto): gerar IA (substitui ad) + enviar do cliente.
+                          // Ação 2 (CPA alto): pausar (executável) + gerar IA (substitui ad) + enviar do cliente + criar conjunto p/ novo público.
                           // Ação 5 (4 criativos por GA): gerar IA (criativo NOVO no GA) + enviar do cliente.
                           showUploadButton={displayId === 2 || displayId === 5}
                           showAIButton={displayId === 2 || displayId === 5}
+                          showPauseButton={displayId === 2}
                         />
                       ))}
                     </ul>

@@ -175,7 +175,8 @@ AÇÕES DO CHECKLIST (ordem fixa):
 
 2. "Verificar se existem criativos ou públicos com CPA muito acima da média e pausar"
    - SE nenhum CPA absurdo (≥3× benchmark + spend ≥R$50 + 4+ dias) → status="check".
-   - SE houver → status="atencao", sub_acoes[] = lista de ads pra pausar com {ad_id, ad_name, cpl_atual, motivo, sugestao_novo_criativo, sugestao_novo_publico}.
+   - SE houver → status="atencao", sub_acoes[] = lista de ads pra pausar com {ad_id, adset_id (SEMPRE, o conjunto do ad), ad_name, cpl_atual, motivo, sugestao_novo_criativo, sugestao_novo_publico, action:{type:"pause_ad", ad_id}}.
+   - A pausa É a ação (executada pelo portal), não só recomendação: SEMPRE preencha action.type="pause_ad" e adset_id em cada sub_acao desta ação.
 
 3. "Subir criativos enviados pelo cliente"
    - Você não tem acesso ao Drive — sempre marque status="verificar_manual", resumo="Conferir pasta Drive do cliente. Se houver, decidir em qual campanha subir antes de upload.".
@@ -194,7 +195,11 @@ REGRAS:
 - Vereditos no campaigns_analysis (legado, mantém pra compatibilidade): apenas manter | ajustar | pausar.
 - Papel ads: apenas manter | escalar | pausar.
 - NÃO preencher publicos[] / nova_estrutura / copy_sugerida — isso é semanal/mensal.
-- Proposals tradicionais (proposals[]) derive APENAS dos sub_acoes da ação 2 (pausar) + ação 4 (escalar). 1:1.${customAudienceText}`;
+- Proposals tradicionais (proposals[]) derive APENAS dos sub_acoes da ação 2 (pausar) + ação 4 (escalar). 1:1.
+- AÇÃO EXECUTÁVEL OBRIGATÓRIA em cada proposal (a UI executa via portal — nunca deixe só texto):
+  · Ação 2 → { verdict:"pausar", ad_id:<id do ad>, action:{type:"pause_ad", ad_id:<mesmo id>} }.
+  · Ação 4 → { verdict:"escalar", ad_id:<id de um ad do conjunto>, action:{type:"scale_budget", adset_id:<id do conjunto>, new_budget_cents:<INTEIRO em centavos = daily_budget_sugerido×100, OBRIGATÓRIO, JAMAIS null/ausente/0> } }.
+- new_budget_cents NUNCA pode faltar num scale_budget — sem ele o botão "Escalar" quebra. Calcule sempre a partir do daily_budget_sugerido.${customAudienceText}`;
 
   const userMessage = `Analise as campanhas Meta Ads dos últimos 7 dias:\n\n${metricsText}`;
 

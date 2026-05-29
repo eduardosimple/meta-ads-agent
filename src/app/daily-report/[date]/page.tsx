@@ -23,6 +23,15 @@ function fmtDate(date: string) {
   const [y, m, d] = date.split("-");
   return `${d}/${m}/${y}`;
 }
+/** Label do botão Escalar. Protege contra new_budget_cents ausente/inválido
+ *  (a análise nem sempre preenche) — sem isso o botão exibia "R$ NaN/dia". */
+function scaleLabel(scaleBudget: { new_budget_cents?: number } | null): string {
+  const cents = scaleBudget?.new_budget_cents;
+  if (typeof cents === "number" && Number.isFinite(cents) && cents > 0) {
+    return `Escalar para ${(cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}/dia`;
+  }
+  return "Escalar orçamento (+20%)";
+}
 
 const verdictLabel: Record<string, string> = {
   pausar: "PAUSAR", ajustar: "AJUSTAR", testar_variacao: "TESTAR",
@@ -142,13 +151,7 @@ function ProposalActions({
       <ActionButton
         clientSlug={clientSlug} date={date} adId={p.ad_id} platform={platform}
         actionType={p.verdict === "pausar" ? "pause" : "scale"}
-        label={
-          p.verdict === "pausar"
-            ? "Pausar anúncio"
-            : scaleBudget
-            ? `Escalar para ${(scaleBudget.new_budget_cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}/dia`
-            : "Escalar"
-        }
+        label={p.verdict === "pausar" ? "Pausar anúncio" : scaleLabel(scaleBudget)}
         reportKey={reportKey}
         initialStatus={p.status} initialResultMessage={p.result_message}
       />
@@ -292,13 +295,7 @@ function ProposalRow({
           adId={p.ad_id}
           platform={platform}
           actionType={p.verdict === "pausar" ? "pause" : "scale"}
-          label={
-            p.verdict === "pausar"
-              ? "Pausar anúncio"
-              : scaleBudget
-              ? `Escalar para ${(scaleBudget.new_budget_cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}/dia`
-              : "Escalar"
-          }
+          label={p.verdict === "pausar" ? "Pausar anúncio" : scaleLabel(scaleBudget)}
           reportKey={reportKey}
           initialStatus={p.status}
           initialResultMessage={p.result_message}
