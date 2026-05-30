@@ -1,14 +1,17 @@
-import { NextRequest, NextResponse, after } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getClients } from "@/lib/clients";
 import { getReportsByDate } from "@/lib/reports-store";
 import { todayBR } from "@/lib/date-br";
 
-export const maxDuration = 60;
+// 300s: precisa caber o processamento de vários clientes aguardando de verdade.
+// A função serverless da Vercel continua rodando até terminar (ou bater o
+// maxDuration) mesmo se o cliente (cron-job.org) desconectar por timeout.
+export const maxDuration = 300;
 
-// Quantos analysis-single rodam em paralelo dentro de uma chamada.
-const CONCURRENCY = 5;
-// Orçamento de tempo pra não estourar o maxDuration (deixa folga).
-const TIME_BUDGET_MS = 50_000;
+// Quantos analysis-single rodam em paralelo.
+const CONCURRENCY = 8;
+// Folga p/ não estourar o maxDuration.
+const TIME_BUDGET_MS = 270_000;
 
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
@@ -21,7 +24,6 @@ export async function GET(req: NextRequest) {
 
   const today = todayBR();
 
-  // Uma query pra pegar todos os reports de hoje
   let todayReports: Awaited<ReturnType<typeof getReportsByDate>> = [];
   let dbError: string | null = null;
   try {
@@ -45,8 +47,8 @@ export async function GET(req: NextRequest) {
     return !r?.meta || (c.google && !r?.google);
   });
 
-  // limit opcional: limita o tamanho da fila desta chamada. Sem limit = todos
-  // os pendentes (o TIME_BUDGET_MS é quem corta naturalmente por chamada).
+  // limit opcional: limita a fila desta chamada. Sem limit = todos os pendentes
+  // (o TIME_BUDGET_MS corta naturalmente se não couber tudo).
   const limitParam = req.nextUrl.searchParams.get("limit");
   const parsed = limitParam ? parseInt(limitParam) : NaN;
   const cap = Number.isFinite(parsed) ? Math.max(0, parsed) : pending.length;
@@ -58,44 +60,44 @@ export async function GET(req: NextRequest) {
     ? `https://${process.env.VERCEL_URL}`
     : "http://localhost:3000";
 
-  // CONFIÁVEL: processa DEPOIS de responder (after) — a Vercel mantém a função
-  // viva até terminar (até maxDuration), então o cron-job.org não toma timeout
-  // e nenhum disparo se perde. Worker pool AGUARDA cada analysis-single de
-  // verdade (nada de fire-and-forget). Clientes com token quebrado falham
-  // rápido e o worker já pega o próximo, sem travar a fila.
-  after(async () => {
-    const deadline = Date.now() + TIME_BUDGET_MS;
-    const work = [...queue];
-    async function worker() {
-      while (work.length > 0 && Date.now() < deadline) {
-        const slug = work.shift();
-        if (!slug) break;
-        try {
-          await fetch(
-            `${baseUrl}/api/cron/analysis-single?slug=${slug}`,
-            { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` } }
-          );
-        } catch {
-          /* analysis-single loga o próprio erro; segue p/ o próximo */
-        }
+  // CONFIÁVEL: worker pool que AGUARDA cada analysis-single terminar (sem
+  // fire-and-forget — a Vercel não congela a função antes de salvar). Clientes
+  // com token quebrado falham rápido e o worker já pega o próximo, sem travar.
+  const deadline = Date.now() + TIME_BUDGET_MS;
+  const work = [...queue];
+  const ok: string[] = [];
+  const failed: string[] = [];
+
+  async function worker() {
+    while (work.length > 0 && Date.now() < deadline) {
+      const slug = work.shift();
+      if (!slug) break;
+      try {
+        const r = await fetch(
+          `${baseUrl}/api/cron/analysis-single?slug=${slug}`,
+          { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` } }
+        );
+        const body = await r.json().catch(() => null);
+        if (r.ok && body && body.status === "ok") ok.push(slug);
+        else failed.push(slug);
+      } catch {
+        failed.push(slug);
       }
     }
-    await Promise.all(
-      Array.from({ length: Math.min(CONCURRENCY, queue.length) }, () => worker())
-    );
-  });
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, queue.length) }, () => worker())
+  );
 
   return NextResponse.json({
-    accepted: queue.length,
-    pending_total: pending.length,
-    skipped: activeClients.length - pending.length,
+    requested: queue.length,
+    ok: ok.length,
+    failed: failed.length,
+    failed_slugs: failed,
+    not_processed: work.length, // sobrou por estouro de tempo (chamar de novo)
     total_active: activeClients.length,
     db_error: dbError,
-    debug: {
-      no_row: sortedClients.filter(c => !existingMap.get(c.slug)).length,
-      meta_null: sortedClients.filter(c => { const r = existingMap.get(c.slug); return r && !r.meta; }).length,
-      complete: sortedClients.filter(c => !!existingMap.get(c.slug)?.meta).length,
-    },
     at: new Date().toISOString(),
   });
 }
