@@ -1,9 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { getClients } from "@/lib/clients";
 import { getReportsByDate } from "@/lib/reports-store";
-import { todayBR, nDaysAgoBR } from "@/lib/date-br";
+import { todayBR } from "@/lib/date-br";
 
-export const maxDuration = 30;
+export const maxDuration = 60;
+
+// Quantos analysis-single rodam em paralelo dentro de uma chamada.
+const CONCURRENCY = 5;
+// Orçamento de tempo pra não estourar o maxDuration (deixa folga).
+const TIME_BUDGET_MS = 50_000;
 
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
@@ -16,7 +21,7 @@ export async function GET(req: NextRequest) {
 
   const today = todayBR();
 
-  // Single query to get all today's reports
+  // Uma query pra pegar todos os reports de hoje
   let todayReports: Awaited<ReturnType<typeof getReportsByDate>> = [];
   let dbError: string | null = null;
   try {
@@ -26,6 +31,7 @@ export async function GET(req: NextRequest) {
   }
   const existingMap = new Map(todayReports.map(r => [r.client_slug, r]));
 
+  // Prioriza quem ainda não tem report / está sem meta
   const sortedClients = [...activeClients].sort((a, b) => {
     const ra = existingMap.get(a.slug);
     const rb = existingMap.get(b.slug);
@@ -34,15 +40,17 @@ export async function GET(req: NextRequest) {
     return pa - pb;
   });
 
-  const limitParam = req.nextUrl.searchParams.get("limit");
-  const workList = limitParam ? sortedClients.slice(0, parseInt(limitParam)) : sortedClients;
-
-  const clientsNeedingWork = workList.filter(c => {
+  const pending = sortedClients.filter(c => {
     const r = existingMap.get(c.slug);
     return !r?.meta || (c.google && !r?.google);
   });
 
-  const skippedCount = workList.length - clientsNeedingWork.length;
+  // limit opcional: limita o tamanho da fila desta chamada. Sem limit = todos
+  // os pendentes (o TIME_BUDGET_MS é quem corta naturalmente por chamada).
+  const limitParam = req.nextUrl.searchParams.get("limit");
+  const parsed = limitParam ? parseInt(limitParam) : NaN;
+  const cap = Number.isFinite(parsed) ? Math.max(0, parsed) : pending.length;
+  const queue = pending.slice(0, cap).map(c => c.slug);
 
   const baseUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
     ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
@@ -50,17 +58,37 @@ export async function GET(req: NextRequest) {
     ? `https://${process.env.VERCEL_URL}`
     : "http://localhost:3000";
 
-  // Fire-and-forget: dispatch all without awaiting
-  for (const client of clientsNeedingWork) {
-    fetch(
-      `${baseUrl}/api/cron/analysis-single?slug=${client.slug}`,
-      { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` } }
-    ).catch(() => { /* ignore — each function logs its own errors */ });
-  }
+  // CONFIÁVEL: processa DEPOIS de responder (after) — a Vercel mantém a função
+  // viva até terminar (até maxDuration), então o cron-job.org não toma timeout
+  // e nenhum disparo se perde. Worker pool AGUARDA cada analysis-single de
+  // verdade (nada de fire-and-forget). Clientes com token quebrado falham
+  // rápido e o worker já pega o próximo, sem travar a fila.
+  after(async () => {
+    const deadline = Date.now() + TIME_BUDGET_MS;
+    const work = [...queue];
+    async function worker() {
+      while (work.length > 0 && Date.now() < deadline) {
+        const slug = work.shift();
+        if (!slug) break;
+        try {
+          await fetch(
+            `${baseUrl}/api/cron/analysis-single?slug=${slug}`,
+            { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` } }
+          );
+        } catch {
+          /* analysis-single loga o próprio erro; segue p/ o próximo */
+        }
+      }
+    }
+    await Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, queue.length) }, () => worker())
+    );
+  });
 
   return NextResponse.json({
-    dispatched: clientsNeedingWork.map(c => c.slug),
-    skipped: skippedCount,
+    accepted: queue.length,
+    pending_total: pending.length,
+    skipped: activeClients.length - pending.length,
     total_active: activeClients.length,
     db_error: dbError,
     debug: {
