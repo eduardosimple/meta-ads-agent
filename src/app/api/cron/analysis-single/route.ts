@@ -3,6 +3,7 @@ import { getClients, getClientBySlug } from "@/lib/clients";
 import { saveReport, getReportsByDate } from "@/lib/reports-store";
 import { getGoogleCampaignsWithMetrics } from "@/lib/google-ads-api";
 import { analyzeMetaAds, analyzeGoogleAds } from "@/lib/analysis";
+import { executeAutoActions } from "@/lib/auto-executor";
 import type { DailyReport } from "@/lib/reports-store";
 import { randomUUID } from "crypto";
 import { todayBR, nDaysAgoBR } from "@/lib/date-br";
@@ -67,7 +68,8 @@ export async function GET(req: NextRequest) {
 
   if (needsMeta) {
     try {
-      const analysis = await analyzeMetaAds(client, sevenDaysAgo, today);
+      const rawAnalysis = await analyzeMetaAds(client, sevenDaysAgo, today);
+      const analysis = await executeAutoActions(client, rawAnalysis);
       report.meta = {
         ...analysis,
         spend_7d: analysis.spend_7d ?? 0,
@@ -86,11 +88,12 @@ export async function GET(req: NextRequest) {
         getGoogleCampaignsWithMetrics(client.google, sevenDaysAgo, today),
       ]);
       if (analysis.status === "fulfilled") {
+        const executedAnalysis = await executeAutoActions(client, analysis.value);
         const g = gMetrics.status === "fulfilled" ? gMetrics.value : [];
         const gSpend = g.reduce((s, c) => s + c.spend, 0);
         const gConversions = g.reduce((s, c) => s + c.conversions, 0);
         report.google = {
-          ...analysis.value,
+          ...executedAnalysis,
           spend_7d: gSpend,
           conversions_7d: gConversions,
           avg_ctr: g.length > 0 ? g.reduce((s, c) => s + c.ctr, 0) / g.length : 0,
