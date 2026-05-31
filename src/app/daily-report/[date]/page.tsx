@@ -692,7 +692,7 @@ export default async function DailyReportPage({
                   <details className="group/camp rounded-xl border border-[#1c1c20] bg-[#0f0f12]">
                     <summary className="px-3 py-2 text-xs text-zinc-400 cursor-pointer select-none hover:text-zinc-200 list-none [&::-webkit-details-marker]:hidden flex items-center gap-1.5">
                       <span className="group-open/camp:rotate-90 transition-transform">▸</span>
-                      Status das campanhas ({metaCampaigns.length + googleCampaigns.length})
+                      Status das campanhas ({metaCampaigns.length + googleCampaigns.length} ativas · {fmtBRL((report.meta?.spend_7d ?? 0) + (report.google?.spend_7d ?? 0))} · {(report.meta?.leads_7d ?? 0) + Math.round(report.google?.conversions_7d ?? 0)} leads)
                     </summary>
                     <div className="p-3 space-y-3 border-t border-[#1c1c20]">
                       {metaCampaigns.map(c => (
