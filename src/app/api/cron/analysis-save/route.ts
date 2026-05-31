@@ -19,8 +19,64 @@ import { saveReport, getReportsByDate, type DailyReport } from "@/lib/reports-st
 import { getClientBySlug } from "@/lib/clients";
 import type { AnalysisResult, Proposal, Alert } from "@/types/metrics";
 import { randomUUID } from "crypto";
+import { executeAutoActions } from "@/lib/auto-executor";
+import { getAdInsights } from "@/lib/meta-api";
+import { getGoogleAdGroupInsights } from "@/lib/google-ads-api";
+import { todayBR, nDaysAgoBR } from "@/lib/date-br";
 
-export const maxDuration = 30;
+// 120s: além do I/O, busca métricas do cliente (para os gates) e executa as
+// ações automáticas via Meta/Google API antes de persistir.
+export const maxDuration = 120;
+
+/**
+ * Busca spend/days_running por ad_id (Meta) ou spend por ad_group + spend por
+ * campanha (Google) e anexa em proposal.gate_inputs. Necessário porque as
+ * proposals vindas da skill local não trazem esses números, e o auto-executor
+ * precisa deles para avaliar os gates 12345. Falha não-fatal: sem métricas,
+ * gate_inputs fica vazio e o auto-executor apenas pula (nada é executado).
+ */
+async function attachGateInputs(
+  client: Awaited<ReturnType<typeof getClientBySlug>>,
+  platform: "meta" | "google",
+  proposals: Proposal[],
+): Promise<Proposal[]> {
+  if (!client) return proposals;
+  const dateTo = todayBR();
+  const dateFrom = nDaysAgoBR(7);
+  try {
+    if (platform === "meta" && client.meta?.ad_account_id && client.meta?.access_token) {
+      const ads = await getAdInsights(client.meta.ad_account_id, client.meta.access_token, dateFrom, dateTo);
+      const byAd = new Map(ads.map(m => [m.ad_id, m]));
+      return proposals.map(p => {
+        const m = byAd.get(p.ad_id);
+        return { ...p, gate_inputs: { spend: m?.spend ?? 0, days_running: m?.days_running ?? 0 } };
+      });
+    }
+    if (platform === "google" && client.google) {
+      const groups = await getGoogleAdGroupInsights(client.google, dateFrom, dateTo);
+      const adGroupSpend = new Map<string, number>();
+      const campaignSpend = new Map<string, number>();
+      for (const g of groups) {
+        adGroupSpend.set(g.ad_group_id, g.spend);
+        campaignSpend.set(g.campaign_id, (campaignSpend.get(g.campaign_id) ?? 0) + g.spend);
+      }
+      return proposals.map(p => {
+        const a = p.action;
+        const campId = (a.type === "scale_google_campaign" || a.type === "pause_google_campaign") ? a.campaign_id : undefined;
+        return {
+          ...p,
+          gate_inputs: {
+            spend: adGroupSpend.get(p.ad_id) ?? 0,
+            campaign_spend: campId ? (campaignSpend.get(campId) ?? 0) : 0,
+          },
+        };
+      });
+    }
+  } catch {
+    // métricas indisponíveis → segue sem gate_inputs (auto-executor pula tudo)
+  }
+  return proposals;
+}
 
 function authOK(req: NextRequest): boolean {
   return req.headers.get("x-cron-key") === process.env.CRON_SECRET
@@ -87,6 +143,9 @@ export async function POST(req: NextRequest) {
   // Ordena por score↓ quando presente (mantém ordem original como tiebreaker)
   const proposals = [...proposalsFiltered].sort((x, y) => (y.score ?? 0) - (x.score ?? 0));
 
+  // Anexa spend/days/campaign_spend para os gates do auto-executor.
+  const proposalsWithGates = await attachGateInputs(client, platform, proposals);
+
   const alerts: Alert[] = (a.alerts ?? []).map(al => ({
     ...al,
     id: al.id || randomUUID(),
@@ -95,7 +154,7 @@ export async function POST(req: NextRequest) {
   const finalAnalysis: AnalysisResult = {
     client_slug: body.slug,
     analyzed_at: a.analyzed_at || new Date().toISOString(),
-    proposals,
+    proposals: proposalsWithGates,
     alerts,
     summary_text: a.summary_text || "",
     plano_de_acao: a.plano_de_acao ?? [],
@@ -109,6 +168,10 @@ export async function POST(req: NextRequest) {
     cost_per_conversion: a.cost_per_conversion,
   };
 
+  // Executa as ações automáticas elegíveis (pausar/escalar dentro dos gates)
+  // e resolve o status de cada proposal antes de persistir. Nunca lança.
+  const executedAnalysis = await executeAutoActions(client, finalAnalysis);
+
   // Merge no relatório existente (preserva outras plataformas)
   const existing = (await getReportsByDate(body.date)).find(r => r.client_slug === body.slug);
   const report: DailyReport = existing ?? {
@@ -119,8 +182,8 @@ export async function POST(req: NextRequest) {
     created_at: new Date().toISOString(),
   };
 
-  if (platform === "meta") report.meta = finalAnalysis;
-  else report.google = finalAnalysis;
+  if (platform === "meta") report.meta = executedAnalysis;
+  else report.google = executedAnalysis;
 
   try {
     await saveReport(report);
