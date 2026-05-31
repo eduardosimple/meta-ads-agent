@@ -35,11 +35,21 @@ export async function GET(req: NextRequest) {
     ? todayReports.value.find(r => r.client_slug === slug)
     : undefined;
 
-  const needsMeta = !existing?.meta;
-  const needsGoogle = client.google ? !existing?.google : false;
+  // Cliente só tem Meta de verdade se houver token E conta. Clientes Google-only
+  // carregam um bloco meta vazio/stub (access_token "") — não tentar Meta neles,
+  // senão estoura "Cannot parse access token" e aborta ANTES de rodar o Google.
+  const hasMeta = !!(client.meta?.access_token && client.meta?.ad_account_id);
+  const hasGoogle = !!client.google;
+
+  const needsMeta = hasMeta && !existing?.meta;
+  const needsGoogle = hasGoogle && !existing?.google;
 
   if (!needsMeta && !needsGoogle) {
-    return NextResponse.json({ status: "skipped", client: slug });
+    return NextResponse.json({
+      status: "skipped",
+      client: slug,
+      reason: (!hasMeta && !hasGoogle) ? "sem_plataforma" : "ja_processado",
+    });
   }
 
   const report: DailyReport = existing ?? {
@@ -49,6 +59,11 @@ export async function GET(req: NextRequest) {
     date: today,
     created_at: new Date().toISOString(),
   };
+
+  // Erros por canal são NÃO-fatais: falha no Meta não pode impedir o Google de
+  // ser salvo (e vice-versa). Só retorna erro se NADA foi gerado.
+  let metaError: string | null = null;
+  let googleError: string | null = null;
 
   if (needsMeta) {
     try {
@@ -60,8 +75,7 @@ export async function GET(req: NextRequest) {
         avg_ctr: analysis.avg_ctr ?? 0,
       };
     } catch (e) {
-      const reason = e instanceof Error ? e.message : String(e);
-      return NextResponse.json({ status: "meta_error", error: reason, client: slug });
+      metaError = e instanceof Error ? e.message : String(e);
     }
   }
 
@@ -82,13 +96,31 @@ export async function GET(req: NextRequest) {
           avg_ctr: g.length > 0 ? g.reduce((s, c) => s + c.ctr, 0) / g.length : 0,
           cost_per_conversion: gConversions > 0 ? gSpend / gConversions : 0,
         };
+      } else {
+        googleError = analysis.reason instanceof Error ? analysis.reason.message : String(analysis.reason);
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      return NextResponse.json({ status: "google_error", error: msg, client: slug });
+      googleError = e instanceof Error ? e.message : String(e);
     }
   }
 
+  // Não persistir vazio — reporta o(s) erro(s) p/ o dispatcher contar como falha.
+  if (!report.meta && !report.google) {
+    return NextResponse.json({
+      status: "error",
+      client: slug,
+      meta_error: metaError,
+      google_error: googleError,
+    });
+  }
+
   await saveReport(report);
-  return NextResponse.json({ status: "ok", client: slug, date: today });
+  return NextResponse.json({
+    status: "ok",
+    client: slug,
+    date: today,
+    saved: { meta: !!report.meta, google: !!report.google },
+    ...(metaError ? { meta_error: metaError } : {}),
+    ...(googleError ? { google_error: googleError } : {}),
+  });
 }
