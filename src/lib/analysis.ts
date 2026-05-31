@@ -398,6 +398,10 @@ Campanhas PAUSED/ARCHIVED não precisam estar em campaigns_analysis (mas o hist�
       created_at: now_iso,
       score,
       acao_sugerida,
+      gate_inputs: {
+        spend: adData?.spend ?? 0,
+        days_running: adData?.days_running ?? 0,
+      },
       ...(budget_sugerido_cents !== undefined ? { budget_sugerido_cents } : {}),
     };
   });
@@ -515,6 +519,13 @@ summary_text: OBRIGATÓRIO — 2-3 frases: gasto, conversões, CPC médio, ponto
   const customerId = normalizeCustomerId(client.google.customer_id);
   const now_iso = new Date().toISOString();
 
+  const campaignSpendMap = new Map<string, number>();
+  const adGroupSpendMap = new Map<string, number>();
+  for (const g of adGroups) {
+    campaignSpendMap.set(g.campaign_id, (campaignSpendMap.get(g.campaign_id) ?? 0) + g.spend);
+    adGroupSpendMap.set(g.ad_group_id, g.spend);
+  }
+
   const totalSpendGoogle = adGroups.reduce((s, g) => s + g.spend, 0);
   const totalConversions = adGroups.reduce((s, g) => s + g.conversions, 0);
   const avgCtrGoogle = adGroups.length > 0 ? adGroups.reduce((s, g) => s + g.ctr, 0) / adGroups.length : 0;
@@ -534,7 +545,18 @@ summary_text: OBRIGATÓRIO — 2-3 frases: gasto, conversões, CPC médio, ponto
       } else {
         action = { type: "none" };
       }
-      return { ...p, verdict: p.verdict as Proposal["verdict"], action, id: randomUUID(), status: "pending" as const, created_at: now_iso };
+      return {
+        ...p,
+        verdict: p.verdict as Proposal["verdict"],
+        action,
+        id: randomUUID(),
+        status: "pending" as const,
+        created_at: now_iso,
+        gate_inputs: {
+          spend: adGroupSpendMap.get(p.ad_id) ?? 0,
+          campaign_spend: campaignSpendMap.get(p.campaign_id) ?? 0,
+        },
+      };
     }),
     alerts: (parsed.alerts ?? []).map(a => ({ ...a, id: randomUUID() })),
     summary_text: parsed.summary_text || defaultSummaryGoogle,
