@@ -42,9 +42,14 @@ export async function GET(req: NextRequest) {
     return pa - pb;
   });
 
+  // Pendente = falta o canal que o cliente DE FATO tem. Espelha a lógica do
+  // worker (analysis-single): clientes Google-only não têm Meta e não podem
+  // ficar eternamente "pendentes" (reprocessados a cada cron, gastando token).
   const pending = sortedClients.filter(c => {
     const r = existingMap.get(c.slug);
-    return !r?.meta || (c.google && !r?.google);
+    const hasMeta = !!(c.meta?.access_token && c.meta?.ad_account_id);
+    const hasGoogle = !!c.google;
+    return (hasMeta && !r?.meta) || (hasGoogle && !r?.google);
   });
 
   // limit opcional: limita a fila desta chamada. Sem limit = todos os pendentes
