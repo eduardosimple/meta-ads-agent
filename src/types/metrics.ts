@@ -77,7 +77,21 @@ export interface Proposal {
   metricas_problema: string[];
   acao_sugerida: string;
   action: ProposalAction;
-  status: "pending" | "approved" | "rejected" | "ignored" | "creative_requested" | "generating" | "creative_error";
+  status:
+    | "pending" | "approved" | "rejected" | "ignored"
+    | "creative_requested" | "generating" | "creative_error"
+    | "executed" | "failed" | "skipped_gate" | "awaiting_approval"
+    | "undone" | "no_action";
+  /** Estado anterior à execução automática — usado para desfazer. */
+  previous_state?:
+    | { kind: "ad_status"; ad_id: string; old: "ACTIVE" | "PAUSED" }
+    | { kind: "adset_budget"; adset_id: string; old_daily_budget_cents: number }
+    | { kind: "google_adgroup_status"; ad_group_id: string; customer_id: string; old: "ENABLED" | "PAUSED" }
+    | { kind: "google_campaign_budget"; campaign_id: string; customer_id: string; old_budget_reais: number };
+  /** Inputs para os gates da metodologia 12345 (preenchidos na análise). */
+  gate_inputs?: { spend?: number; days_running?: number; campaign_spend?: number };
+  /** ISO timestamp de quando a ação automática foi executada. */
+  executed_at?: string;
   created_at: string;
   resolved_at?: string;
   result_message?: string;
