@@ -103,6 +103,17 @@ export async function pauseGoogleAdGroup(google: ClientGoogle, adGroupId: string
   await mutateSingleResource(google, accessToken, "adGroups", resourceName, "PAUSED");
 }
 
+export async function setGoogleAdGroupStatus(
+  google: ClientGoogle,
+  adGroupId: string,
+  status: "PAUSED" | "ENABLED"
+): Promise<void> {
+  const accessToken = await getAccessToken(google);
+  const customerId = normalizeCustomerId(google.customer_id);
+  const resourceName = `customers/${customerId}/adGroups/${adGroupId}`;
+  await mutateSingleResource(google, accessToken, "adGroups", resourceName, status);
+}
+
 export async function pauseGoogleCampaign(google: ClientGoogle, campaignId: string): Promise<void> {
   const accessToken = await getAccessToken(google);
   const customerId = normalizeCustomerId(google.customer_id);

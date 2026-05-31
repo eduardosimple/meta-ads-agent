@@ -431,6 +431,18 @@ export async function pauseEntity(
   return true;
 }
 
+export async function setEntityStatus(
+  entityId: string,
+  status: "ACTIVE" | "PAUSED",
+  accessToken: string
+): Promise<boolean> {
+  await metaFetch<{ success: boolean }>(`/${entityId}`, {
+    method: "POST",
+    body: JSON.stringify({ status, access_token: accessToken }),
+  });
+  return true;
+}
+
 export async function getAdAdsetId(
   adId: string,
   accessToken: string
