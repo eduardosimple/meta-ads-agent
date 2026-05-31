@@ -12,6 +12,8 @@ import TargetingChangeCard from "@/components/report/TargetingChangeCard";
 import CampaignCard from "@/components/report/CampaignCard";
 import ChecklistRevisao from "@/components/report/ChecklistRevisao";
 import ClientErrorBoundary from "@/components/report/ClientErrorBoundary";
+import UndoButton from "@/components/report/UndoButton";
+import ApproveButton from "@/components/report/ApproveButton";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -82,6 +84,24 @@ function ScoreBar({ score }: { score: number }) {
 
 function pScore(p: Proposal): number {
   return typeof p.score === "number" ? p.score : 50;
+}
+
+/** Mapeia o tipo da action de uma proposta para o action_type aceito pelo
+ *  endpoint /proposals/execute (mesmo usado por ActionButton/TargetingChangeCard).
+ *  Proposals "awaiting_approval" vêm de pause_adset / update_adset_targeting /
+ *  create_adset / pause_google_campaign. Default "pause" cobre pausas. */
+function executeActionType(p: Proposal): "pause" | "scale" | "update_targeting" | "create_adset" {
+  switch (p.action?.type) {
+    case "scale_budget":
+    case "scale_google_campaign":
+      return "scale";
+    case "update_adset_targeting":
+      return "update_targeting";
+    case "create_adset":
+      return "create_adset";
+    default:
+      return "pause";
+  }
 }
 
 /** Renderiza só os BOTÕES de ação de um proposal (sem diagnóstico/score).
@@ -350,6 +370,17 @@ export default async function DailyReportPage({
   const totalPending = enriched.reduce((n, e) => n + e.pending.length, 0);
   const criticalCount = enriched.filter(e => e.status.level === "red").length;
 
+  // Prestação de contas — agrega TODAS as proposals (meta + google) de todos os clientes.
+  const allProposalsGlobal: Proposal[] = enriched.flatMap(({ report }) => [
+    ...(report.meta?.proposals ?? []),
+    ...(report.google?.proposals ?? []),
+  ]);
+  const feitasGlobal = allProposalsGlobal.filter(p => p.status === "executed");
+  const aguardandoGlobal = allProposalsGlobal.filter(p => p.status === "awaiting_approval");
+  const naoFeitoGlobal = allProposalsGlobal.filter(p =>
+    ["skipped_gate", "no_action", "failed", "undone"].includes(p.status)
+  );
+
   const pendingCreativeReqs = enriched.flatMap(({ report }) => {
     const all = [...(report.meta?.proposals ?? []), ...(report.google?.proposals ?? [])];
     return all
@@ -378,6 +409,19 @@ export default async function DailyReportPage({
             <Kpi label="Ações" value={String(totalPending)} tone={totalPending > 0 ? "amber" : undefined} />
           </div>
         </div>
+
+        {/* Prestação de contas — resumo do que o agente fez/aguarda/não fez */}
+        {allProposalsGlobal.length > 0 && (
+          <div className="bg-[#0f0f12] border border-[#1c1c20] rounded-2xl px-5 py-3">
+            <p className="text-sm text-zinc-200 font-medium flex flex-wrap gap-x-4 gap-y-1">
+              <span className="text-emerald-300">✅ {feitasGlobal.length} feitas</span>
+              <span className="text-zinc-500">·</span>
+              <span className="text-amber-300">⏳ {aguardandoGlobal.length} aguardando você</span>
+              <span className="text-zinc-500">·</span>
+              <span className="text-zinc-400">⏭️ {naoFeitoGlobal.length} não feitas</span>
+            </p>
+          </div>
+        )}
 
         {reports.length === 0 && (
           <div className="bg-[#0f0f12] border border-[#1c1c20] rounded-2xl p-10 text-center">
@@ -488,6 +532,13 @@ export default async function DailyReportPage({
           const worstAd = allProposals.find(p => (p.verdict === "pausar" || p.verdict === "ajustar") && p.status === "pending");
           const bestAd = allProposals.find(p => p.verdict === "escalar" || p.verdict === "manter");
 
+          // Prestação de contas por cliente (status resolvido pela revisão diária).
+          const feitas = allProposals.filter(p => p.status === "executed");
+          const aguardando = allProposals.filter(p => p.status === "awaiting_approval");
+          const naoFeito = allProposals.filter(p =>
+            ["skipped_gate", "no_action", "failed", "undone"].includes(p.status)
+          );
+
           const infoAlerts = [
             ...(report.meta?.alerts ?? []),
             ...(report.google?.alerts ?? []),
@@ -573,30 +624,99 @@ export default async function DailyReportPage({
                   />
                 )}
 
-                {/* VIEW NOVO: por campanha */}
-                {hasCampaignAnalysis && (
-                  <div className="space-y-3">
-                    {metaCampaigns.map(c => (
-                      <CampaignCard
-                        key={`meta-${c.campaign_id}`}
-                        analysis={c}
-                        proposals={(metaPropsByCamp.get(c.campaign_name) ?? []).filter(p => p.status === "pending")}
-                        renderActionDetail={(p) => (
-                          <ProposalDetail p={p} clientSlug={report.client_slug} date={date} reportKey={reportKey} platform="meta" />
+                {/* ✅ O QUE FOI FEITO — sempre aberta */}
+                {feitas.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[10px] tracking-[0.22em] font-medium text-emerald-300 uppercase">
+                      ✅ O que foi feito ({feitas.length})
+                    </p>
+                    {feitas.map(p => (
+                      <div key={p.id} className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 px-3 py-2.5 space-y-1">
+                        <p className="text-xs font-semibold text-zinc-100">{p.titulo}</p>
+                        {p.result_message && (
+                          <p className="text-xs text-zinc-300 leading-snug">{p.result_message}</p>
                         )}
-                      />
-                    ))}
-                    {googleCampaigns.map(c => (
-                      <CampaignCard
-                        key={`google-${c.campaign_id}`}
-                        analysis={c}
-                        proposals={(googlePropsByCamp.get(c.campaign_name) ?? []).filter(p => p.status === "pending")}
-                        renderActionDetail={(p) => (
-                          <ProposalDetail p={p} clientSlug={report.client_slug} date={date} reportKey={reportKey} platform="google" />
-                        )}
-                      />
+                        <UndoButton slug={report.client_slug} date={date} proposalId={p.id} viewKey={reportKey} />
+                      </div>
                     ))}
                   </div>
+                )}
+
+                {/* ⏳ AGUARDANDO VOCÊ — sempre aberta */}
+                {aguardando.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[10px] tracking-[0.22em] font-medium text-amber-300 uppercase">
+                      ⏳ Aguardando você ({aguardando.length})
+                    </p>
+                    {aguardando.map(p => (
+                      <div key={p.id} className="rounded-xl border border-amber-500/25 bg-amber-500/5 px-3 py-2.5 space-y-1">
+                        <p className="text-xs font-semibold text-zinc-100">{p.titulo}</p>
+                        {p.acao_sugerida && (
+                          <p className="text-xs text-zinc-200 font-medium">→ {p.acao_sugerida}</p>
+                        )}
+                        <ApproveButton
+                          slug={report.client_slug}
+                          date={date}
+                          adId={p.ad_id}
+                          platform={metaPlatform.has(p.id) ? "meta" : "google"}
+                          actionType={executeActionType(p)}
+                          viewKey={reportKey}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* ⏭️ NÃO FEITO / SEM AÇÃO — minimizada */}
+                {naoFeito.length > 0 && (
+                  <details className="group/nf rounded-xl border border-[#1c1c20] bg-[#0f0f12]">
+                    <summary className="px-3 py-2 text-xs text-zinc-400 cursor-pointer select-none hover:text-zinc-200 list-none [&::-webkit-details-marker]:hidden flex items-center gap-1.5">
+                      <span className="group-open/nf:rotate-90 transition-transform">▸</span>
+                      Não feito / sem ação ({naoFeito.length})
+                    </summary>
+                    <div className="px-3 pb-3 pt-1 space-y-2 border-t border-[#1c1c20]">
+                      {naoFeito.map(p => (
+                        <div key={p.id} className="space-y-0.5">
+                          <p className="text-xs font-semibold text-zinc-200">{p.titulo}</p>
+                          {p.result_message && (
+                            <p className="text-xs text-zinc-500 leading-snug">{p.result_message}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+
+                {/* STATUS DAS CAMPANHAS — minimizada (view por campanha) */}
+                {hasCampaignAnalysis && (
+                  <details className="group/camp rounded-xl border border-[#1c1c20] bg-[#0f0f12]">
+                    <summary className="px-3 py-2 text-xs text-zinc-400 cursor-pointer select-none hover:text-zinc-200 list-none [&::-webkit-details-marker]:hidden flex items-center gap-1.5">
+                      <span className="group-open/camp:rotate-90 transition-transform">▸</span>
+                      Status das campanhas ({metaCampaigns.length + googleCampaigns.length})
+                    </summary>
+                    <div className="p-3 space-y-3 border-t border-[#1c1c20]">
+                      {metaCampaigns.map(c => (
+                        <CampaignCard
+                          key={`meta-${c.campaign_id}`}
+                          analysis={c}
+                          proposals={(metaPropsByCamp.get(c.campaign_name) ?? []).filter(p => p.status === "pending")}
+                          renderActionDetail={(p) => (
+                            <ProposalDetail p={p} clientSlug={report.client_slug} date={date} reportKey={reportKey} platform="meta" />
+                          )}
+                        />
+                      ))}
+                      {googleCampaigns.map(c => (
+                        <CampaignCard
+                          key={`google-${c.campaign_id}`}
+                          analysis={c}
+                          proposals={(googlePropsByCamp.get(c.campaign_name) ?? []).filter(p => p.status === "pending")}
+                          renderActionDetail={(p) => (
+                            <ProposalDetail p={p} clientSlug={report.client_slug} date={date} reportKey={reportKey} platform="google" />
+                          )}
+                        />
+                      ))}
+                    </div>
+                  </details>
                 )}
 
                 {/* VIEW FALLBACK (compat com reports antigos) */}
