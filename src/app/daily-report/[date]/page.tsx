@@ -13,6 +13,8 @@ import CampaignCard from "@/components/report/CampaignCard";
 import ChecklistRevisao from "@/components/report/ChecklistRevisao";
 import ClientErrorBoundary from "@/components/report/ClientErrorBoundary";
 import UndoButton from "@/components/report/UndoButton";
+import { Fragment } from "react";
+import { tierOf, monthlyFromSpend7d, TIER_ORDER, TIER_LABEL, type Tier } from "@/lib/tier";
 import ApproveButton from "@/components/report/ApproveButton";
 
 export const dynamic = "force-dynamic";
@@ -358,13 +360,29 @@ export default async function DailyReportPage({
     const pendingActionable = pending.filter(p => p.verdict !== "manter");
     const status = clientStatus(pendingActionable);
     const spend = (report.meta?.spend_7d ?? 0) + (report.google?.spend_7d ?? 0);
-    return { report, idx, metaProposals, googleProposals, pending, pendingActionable, status, spend };
+    const tier = tierOf(spend);
+    return { report, idx, metaProposals, googleProposals, pending, pendingActionable, status, spend, tier };
   });
 
   const statusRank: Record<StatusLevel, number> = { red: 0, yellow: 1, green: 2 };
+  const tierRank: Record<Tier, number> = { A: 0, B: 1, C: 2, none: 3 };
+  // Agrupa por tier (A→B→C→Sem investimento); dentro de cada tier mantém a
+  // ordenação por status de saúde (crítico→ok) e gasto.
   enriched.sort((a, b) =>
-    statusRank[a.status.level] - statusRank[b.status.level] || b.spend - a.spend
+    tierRank[a.tier] - tierRank[b.tier] ||
+    statusRank[a.status.level] - statusRank[b.status.level] ||
+    b.spend - a.spend
   );
+
+  // Resumo por tier para o cabeçalho de seção (nº de contas + mensal projetado).
+  const tierSummary: Record<Tier, { count: number; mensal: number }> = {
+    A: { count: 0, mensal: 0 }, B: { count: 0, mensal: 0 },
+    C: { count: 0, mensal: 0 }, none: { count: 0, mensal: 0 },
+  };
+  for (const e of enriched) {
+    tierSummary[e.tier].count += 1;
+    tierSummary[e.tier].mensal += monthlyFromSpend7d(e.spend);
+  }
 
   const totalSpend = enriched.reduce((s, e) => s + e.spend, 0);
   const totalPending = enriched.reduce((n, e) => n + e.pending.length, 0);
@@ -512,8 +530,10 @@ export default async function DailyReportPage({
         })()}
 
         {/* Clientes — ErrorBoundary por cliente: um malformado não derruba o resto */}
-        {enriched.map(({ report, idx, metaProposals, googleProposals, pending, pendingActionable, status }) => {
+        {enriched.map(({ report, idx, metaProposals, googleProposals, pending, pendingActionable, status, tier }, i) => {
           try {
+          // Cabeçalho de seção: aparece no primeiro cliente de cada tier.
+          const showTierHeader = i === 0 || enriched[i - 1].tier !== tier;
           const brief = briefs[idx];
           const metaCampaigns = report.meta?.campaigns_analysis ?? [];
           const googleCampaigns = report.google?.campaigns_analysis ?? [];
@@ -546,7 +566,23 @@ export default async function DailyReportPage({
           const planoAcao = report.meta?.plano_de_acao ?? [];
 
           return (
-            <ClientErrorBoundary key={report.id} clientName={report.client_name}>
+            <Fragment key={report.id}>
+            {showTierHeader && (
+              <div className="flex items-baseline justify-between gap-2 pt-3 pb-1 px-1">
+                <h2 className={`text-sm font-bold tracking-wide ${
+                  tier === "A" ? "text-emerald-300" :
+                  tier === "B" ? "text-blue-300" :
+                  tier === "C" ? "text-zinc-300" : "text-zinc-500"
+                }`}>
+                  {TIER_LABEL[tier]}
+                </h2>
+                <span className="text-[11px] text-zinc-500 font-mono">
+                  {tierSummary[tier].count} {tierSummary[tier].count === 1 ? "conta" : "contas"}
+                  {tier !== "none" && ` · ${fmtBRL(tierSummary[tier].mensal)}/mês (proj.)`}
+                </span>
+              </div>
+            )}
+            <ClientErrorBoundary clientName={report.client_name}>
             <details
               id={report.client_slug}
               open
@@ -787,6 +823,7 @@ export default async function DailyReportPage({
               </div>
             </details>
             </ClientErrorBoundary>
+            </Fragment>
           );
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);

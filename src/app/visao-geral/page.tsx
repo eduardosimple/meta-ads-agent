@@ -5,6 +5,7 @@ import { useAppContext } from "@/context/AppContext";
 import Link from "next/link";
 import type { ClientOverview } from "@/app/api/overview/route";
 import type { Proposal } from "@/types/metrics";
+import { tierOf, monthlyFromSpend7d, TIER_ORDER, TIER_LABEL } from "@/lib/tier";
 
 interface OverviewResponse {
   overview: ClientOverview[];
@@ -307,13 +308,30 @@ export default function VisaoGeralPage() {
 
       {/* Client cards */}
       {data && hydrated && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {[...data.overview]
-            .sort((a, b) => {
-              const order: Record<string, number> = { critical: 0, razoavel: 1, ok: 2, no_data: 3 };
-              return (order[a.status] ?? 4) - (order[b.status] ?? 4);
-            })
-            .map(client => {
+        <div className="space-y-8">
+          {TIER_ORDER.map(tier => {
+            const order: Record<string, number> = { critical: 0, razoavel: 1, ok: 2, no_data: 3 };
+            const clientsInTier = [...data.overview]
+              .filter(c => tierOf((c.spend_7d ?? 0) + (c.google_spend_7d ?? 0)) === tier)
+              .sort((a, b) => (order[a.status] ?? 4) - (order[b.status] ?? 4));
+            if (clientsInTier.length === 0) return null;
+            const mensalTier = clientsInTier.reduce(
+              (s, c) => s + monthlyFromSpend7d((c.spend_7d ?? 0) + (c.google_spend_7d ?? 0)), 0);
+            return (
+              <div key={tier} className="space-y-3">
+                <div className="flex items-baseline justify-between gap-2 border-b border-gray-200 pb-1">
+                  <h2 className={`text-base font-bold ${
+                    tier === "A" ? "text-emerald-600" :
+                    tier === "B" ? "text-blue-600" :
+                    tier === "C" ? "text-gray-700" : "text-gray-400"
+                  }`}>{TIER_LABEL[tier]}</h2>
+                  <span className="text-xs text-gray-400 font-mono">
+                    {clientsInTier.length} {clientsInTier.length === 1 ? "conta" : "contas"}
+                    {tier !== "none" && ` · ${formatCurrency(mensalTier)}/mês (proj.)`}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {clientsInTier.map(client => {
               const cfg = statusConfig[client.status];
               const lastChange = resolveLastChange(client.slug, client.last_meta_change);
               const lastManual = resolveLastManualChange(client.last_meta_change, client.last_google_change);
@@ -575,7 +593,11 @@ export default function VisaoGeralPage() {
                   </div>
                 </div>
               );
-            })}
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
