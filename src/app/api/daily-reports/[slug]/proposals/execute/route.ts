@@ -2,9 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getReport, saveReport } from "@/lib/reports-store";
 import { getClientBySlug } from "@/lib/clients";
 import { pauseEntity, updateAdsetBudget, updateAdsetTargeting, createAdset } from "@/lib/meta-api";
+import { pauseGoogleAdGroup, pauseGoogleCampaign, scaleGoogleCampaignBudget } from "@/lib/google-ads-api";
 
 // POST /api/daily-reports/[slug]/proposals/execute
-// Body: { date, ad_id, platform, action_type: "pause" | "scale" }
+// Body: { date, ad_id, platform, action_type }
+// Executa (ou força) uma ação de uma proposta. Aceita status:
+//   - "pending"           (fluxo antigo)
+//   - "awaiting_approval" (estrutura aprovada com 1 clique no bloco "Aguardando você")
+//   - "skipped_gate"      ("Fazer mesmo assim" no bloco "Não executado")
 export async function POST(
   req: NextRequest,
   { params }: { params: { slug: string } }
@@ -29,29 +34,51 @@ export async function POST(
   if (!date || !ad_id || !platform || !action_type)
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
 
-  if (platform !== "meta")
-    return NextResponse.json({ error: "Apenas Meta suportado para execução direta" }, { status: 400 });
-
   const report = await getReport(params.slug, date);
   if (!report) return NextResponse.json({ error: "Report not found" }, { status: 404 });
 
-  const analysis = report.meta;
-  if (!analysis) return NextResponse.json({ error: "No Meta data" }, { status: 404 });
+  const analysis = report[platform];
+  if (!analysis) return NextResponse.json({ error: `No ${platform} data` }, { status: 404 });
 
   const propIdx = analysis.proposals.findIndex(p => p.ad_id === ad_id);
   if (propIdx === -1) return NextResponse.json({ error: "Proposal not found" }, { status: 404 });
 
   const proposal = analysis.proposals[propIdx];
-  if (proposal.status !== "pending")
+  const EXECUTAVEIS = ["pending", "awaiting_approval", "skipped_gate"];
+  if (!EXECUTAVEIS.includes(proposal.status))
     return NextResponse.json({ error: `Proposal já resolvida (status: ${proposal.status})` }, { status: 409 });
 
   const client = await getClientBySlug(params.slug);
   if (!client) return NextResponse.json({ error: "Client not found" }, { status: 404 });
 
-  const { access_token } = client.meta;
-
   try {
     let result_message = "";
+
+    // ── Google ──────────────────────────────────────────────────────────────
+    if (platform === "google") {
+      if (!client.google) return NextResponse.json({ error: "Cliente sem credencial Google" }, { status: 400 });
+      const a = proposal.action;
+      if (a.type === "pause_google_campaign") {
+        await pauseGoogleCampaign(client.google, a.campaign_id);
+        result_message = `Campanha Google ${a.campaign_id} pausada.`;
+      } else if (a.type === "pause_google_ad_group") {
+        await pauseGoogleAdGroup(client.google, a.ad_group_id);
+        result_message = `Grupo de anúncios Google ${a.ad_group_id} pausado.`;
+      } else if (a.type === "scale_google_campaign") {
+        const r = await scaleGoogleCampaignBudget(client.google, a.campaign_id, 1.2);
+        result_message = `Budget da campanha Google ${a.campaign_id}: R$${r.old_budget.toFixed(0)}→R$${r.new_budget.toFixed(0)}/dia.`;
+      } else {
+        return NextResponse.json({ error: `Ação Google não suportada: ${a.type}` }, { status: 400 });
+      }
+      analysis.proposals[propIdx].status = "approved";
+      analysis.proposals[propIdx].resolved_at = new Date().toISOString();
+      analysis.proposals[propIdx].result_message = result_message;
+      await saveReport(report);
+      return NextResponse.json({ ok: true, result_message });
+    }
+
+    // ── Meta ────────────────────────────────────────────────────────────────
+    const { access_token } = client.meta;
 
     if (action_type === "pause") {
       await pauseEntity(ad_id, access_token);

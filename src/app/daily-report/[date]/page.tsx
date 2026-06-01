@@ -393,10 +393,10 @@ export default async function DailyReportPage({
     ...(report.meta?.proposals ?? []),
     ...(report.google?.proposals ?? []),
   ]);
-  const feitasGlobal = allProposalsGlobal.filter(p => p.status === "executed");
+  const feitasGlobal = allProposalsGlobal.filter(p => p.status === "executed" || p.status === "undone");
   const aguardandoGlobal = allProposalsGlobal.filter(p => p.status === "awaiting_approval");
-  const naoFeitoGlobal = allProposalsGlobal.filter(p =>
-    ["skipped_gate", "no_action", "failed", "undone"].includes(p.status)
+  const naoExecutadoGlobal = allProposalsGlobal.filter(p =>
+    ["skipped_gate", "failed"].includes(p.status)
   );
 
   const pendingCreativeReqs = enriched.flatMap(({ report }) => {
@@ -432,11 +432,11 @@ export default async function DailyReportPage({
         {allProposalsGlobal.length > 0 && (
           <div className="bg-[#0f0f12] border border-[#1c1c20] rounded-2xl px-5 py-3">
             <p className="text-sm text-zinc-200 font-medium flex flex-wrap gap-x-4 gap-y-1">
-              <span className="text-emerald-300">✅ {feitasGlobal.length} feitas</span>
+              <span className="text-emerald-300">✅ {feitasGlobal.length} trabalhadas</span>
               <span className="text-zinc-500">·</span>
               <span className="text-amber-300">⏳ {aguardandoGlobal.length} aguardando você</span>
               <span className="text-zinc-500">·</span>
-              <span className="text-zinc-400">⏭️ {naoFeitoGlobal.length} não feitas</span>
+              <span className="text-zinc-400">⏭️ {naoExecutadoGlobal.length} não executadas</span>
             </p>
           </div>
         )}
@@ -553,11 +553,15 @@ export default async function DailyReportPage({
           const bestAd = allProposals.find(p => p.verdict === "escalar" || p.verdict === "manter");
 
           // Prestação de contas por cliente (status resolvido pela revisão diária).
-          const feitas = allProposals.filter(p => p.status === "executed");
+          // Trabalhado = executado + desfeito (desfeito mostra o histórico do que foi feito/revertido).
+          const feitas = allProposals.filter(p => p.status === "executed" || p.status === "undone");
           const aguardando = allProposals.filter(p => p.status === "awaiting_approval");
-          const naoFeito = allProposals.filter(p =>
-            ["skipped_gate", "no_action", "failed", "undone"].includes(p.status)
+          // Não executado = quis fazer mas o gate barrou, ou falhou tecnicamente.
+          const naoExecutado = allProposals.filter(p =>
+            ["skipped_gate", "failed"].includes(p.status)
           );
+          // Não precisa mexer = saudável (verdict manter / sem ação).
+          const naoPrecisaMexer = allProposals.filter(p => p.status === "no_action");
 
           const infoAlerts = [
             ...(report.meta?.alerts ?? []),
@@ -660,25 +664,27 @@ export default async function DailyReportPage({
                   />
                 )}
 
-                {/* ✅ O QUE FOI FEITO — sempre aberta */}
+                {/* ✅ TRABALHADO — sempre aberta. Executadas (check + desfazer) e desfeitas. */}
                 {feitas.length > 0 && (
                   <div className="space-y-2">
                     <p className="text-[10px] tracking-[0.22em] font-medium text-emerald-300 uppercase">
-                      ✅ O que foi feito ({feitas.length})
+                      ✅ Trabalhado ({feitas.length})
                     </p>
-                    {feitas.map(p => (
+                    {feitas.map(p => p.status === "undone" ? (
+                      <div key={p.id} className="rounded-xl border border-[#2a2a30] bg-[#0f0f12] px-3 py-2 space-y-0.5">
+                        <p className="text-xs text-zinc-300"><span className="text-zinc-500">↩️ Desfeito:</span> {p.titulo}</p>
+                        {p.result_message && <p className="text-[11px] text-zinc-500 leading-snug">{p.result_message}</p>}
+                      </div>
+                    ) : (
                       <div key={p.id} className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 px-3 py-2.5 space-y-1">
-                        <p className="text-xs font-semibold text-zinc-100">{p.titulo}</p>
-                        {p.result_message && (
-                          <p className="text-xs text-zinc-300 leading-snug">{p.result_message}</p>
-                        )}
+                        <p className="text-xs text-zinc-100"><span className="text-emerald-400 font-semibold">✅</span> {p.result_message || p.titulo}</p>
                         <UndoButton slug={report.client_slug} date={date} proposalId={p.id} viewKey={reportKey} />
                       </div>
                     ))}
                   </div>
                 )}
 
-                {/* ⏳ AGUARDANDO VOCÊ — sempre aberta */}
+                {/* ⏳ AGUARDANDO VOCÊ — sempre aberta. Ações de estrutura (1 clique). */}
                 {aguardando.length > 0 && (
                   <div className="space-y-2">
                     <p className="text-[10px] tracking-[0.22em] font-medium text-amber-300 uppercase">
@@ -703,19 +709,51 @@ export default async function DailyReportPage({
                   </div>
                 )}
 
-                {/* ⏭️ NÃO FEITO / SEM AÇÃO — minimizada */}
-                {naoFeito.length > 0 && (
+                {/* ⏭️ NÃO EXECUTADO — minimizada. Gate barrou (motivo + forçar) ou falhou. */}
+                {naoExecutado.length > 0 && (
                   <details className="group/nf rounded-xl border border-[#1c1c20] bg-[#0f0f12]">
                     <summary className="px-3 py-2 text-xs text-zinc-400 cursor-pointer select-none hover:text-zinc-200 list-none [&::-webkit-details-marker]:hidden flex items-center gap-1.5">
                       <span className="group-open/nf:rotate-90 transition-transform">▸</span>
-                      Não feito / sem ação ({naoFeito.length})
+                      Não executado ({naoExecutado.length})
                     </summary>
-                    <div className="px-3 pb-3 pt-1 space-y-2 border-t border-[#1c1c20]">
-                      {naoFeito.map(p => (
-                        <div key={p.id} className="space-y-0.5">
+                    <div className="px-3 pb-3 pt-1 space-y-2.5 border-t border-[#1c1c20]">
+                      {naoExecutado.map(p => (
+                        <div key={p.id} className="space-y-1">
                           <p className="text-xs font-semibold text-zinc-200">{p.titulo}</p>
                           {p.result_message && (
-                            <p className="text-xs text-zinc-500 leading-snug">{p.result_message}</p>
+                            <p className="text-[11px] text-zinc-500 leading-snug">{p.result_message}</p>
+                          )}
+                          {p.status === "skipped_gate" && (
+                            <ApproveButton
+                              slug={report.client_slug}
+                              date={date}
+                              adId={p.ad_id}
+                              platform={metaPlatform.has(p.id) ? "meta" : "google"}
+                              actionType={executeActionType(p)}
+                              viewKey={reportKey}
+                              label="Fazer mesmo assim"
+                              subtle
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+
+                {/* ✔️ NÃO PRECISA MEXER — minimizada. Saudável, com o porquê. */}
+                {naoPrecisaMexer.length > 0 && (
+                  <details className="group/ok rounded-xl border border-[#1c1c20] bg-[#0f0f12]">
+                    <summary className="px-3 py-2 text-xs text-zinc-400 cursor-pointer select-none hover:text-zinc-200 list-none [&::-webkit-details-marker]:hidden flex items-center gap-1.5">
+                      <span className="group-open/ok:rotate-90 transition-transform">▸</span>
+                      Não precisa mexer ({naoPrecisaMexer.length})
+                    </summary>
+                    <div className="px-3 pb-3 pt-1 space-y-2 border-t border-[#1c1c20]">
+                      {naoPrecisaMexer.map(p => (
+                        <div key={p.id} className="space-y-0.5">
+                          <p className="text-xs text-zinc-300"><span className="text-emerald-500/70">✔</span> {p.titulo}</p>
+                          {(p.result_message || p.diagnostico) && (
+                            <p className="text-[11px] text-zinc-500 leading-snug">{p.result_message || p.diagnostico}</p>
                           )}
                         </div>
                       ))}

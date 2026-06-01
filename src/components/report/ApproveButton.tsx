@@ -10,13 +10,17 @@ interface Props {
   /** Derivado do tipo da action da proposta (pause / scale / update_targeting / create_adset). */
   actionType: "pause" | "scale" | "update_targeting" | "create_adset";
   viewKey: string;
+  /** Texto do botão (default "Aprovar"). Ex.: "Fazer mesmo assim" no bloco Não executado. */
+  label?: string;
+  /** Estilo discreto (outline) — usado quando a ação é secundária (forçar gate). */
+  subtle?: boolean;
 }
 
 /** Aprova (1 clique) uma proposta "awaiting_approval".
  *  Reusa o endpoint /proposals/execute que já existe (mesmo usado pelo
  *  ActionButton/TargetingChangeCard) — auth via header x-report-key, body
  *  { date, ad_id, platform, action_type }. Em sucesso, recarrega a página. */
-export default function ApproveButton({ slug, date, adId, platform, actionType, viewKey }: Props) {
+export default function ApproveButton({ slug, date, adId, platform, actionType, viewKey, label = "Aprovar", subtle = false }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -48,9 +52,11 @@ export default function ApproveButton({ slug, date, adId, platform, actionType, 
       <button
         onClick={approve}
         disabled={loading}
-        className="w-full py-2 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+        className={subtle
+          ? "w-full py-1.5 rounded-lg text-[11px] font-medium text-zinc-300 border border-[#2a2a30] hover:bg-zinc-800/50 disabled:opacity-50 transition-colors"
+          : "w-full py-2 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 transition-colors"}
       >
-        {loading ? "Aprovando..." : "Aprovar"}
+        {loading ? "Executando..." : label}
       </button>
     </div>
   );
