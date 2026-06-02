@@ -646,24 +646,6 @@ export default async function DailyReportPage({
               </summary>
 
               <div className="p-4 space-y-3">
-                {/* Checklist da Revisão Diária — formato ClickUp (5 ações). */}
-                {report.meta?.checklist && report.meta.checklist.length > 0 && (
-                  <ChecklistRevisao
-                    checklist={report.meta.checklist}
-                    slug={report.client_slug}
-                    clientName={report.client_name}
-                    viewKey={reportKey}
-                    dailyDate={date}
-                    proposals={report.meta.proposals ?? []}
-                  />
-                )}
-                {report.google?.checklist && report.google.checklist.length > 0 && (
-                  <ChecklistRevisao
-                    checklist={report.google.checklist}
-                    proposals={report.google.proposals ?? []}
-                  />
-                )}
-
                 {/* ✅ TRABALHADO — sempre aberta. Executadas (check + desfazer) e desfeitas. */}
                 {feitas.length > 0 && (
                   <div className="space-y-2">
@@ -757,6 +739,35 @@ export default async function DailyReportPage({
                           )}
                         </div>
                       ))}
+                    </div>
+                  </details>
+                )}
+
+                {/* CHECKLIST DETALHADO (metodologia 5 ações) — minimizado. Aqui ficam
+                    os botões de pedir criativo / criar conjunto até a unificação (Fase 2). */}
+                {((report.meta?.checklist?.length ?? 0) + (report.google?.checklist?.length ?? 0)) > 0 && (
+                  <details className="group/ckl rounded-xl border border-[#1c1c20] bg-[#0f0f12]">
+                    <summary className="px-3 py-2 text-xs text-zinc-400 cursor-pointer select-none hover:text-zinc-200 list-none [&::-webkit-details-marker]:hidden flex items-center gap-1.5">
+                      <span className="group-open/ckl:rotate-90 transition-transform">▸</span>
+                      Checklist detalhado · pedir criativo / criar conjunto
+                    </summary>
+                    <div className="p-3 border-t border-[#1c1c20] space-y-3">
+                      {report.meta?.checklist && report.meta.checklist.length > 0 && (
+                        <ChecklistRevisao
+                          checklist={report.meta.checklist}
+                          slug={report.client_slug}
+                          clientName={report.client_name}
+                          viewKey={reportKey}
+                          dailyDate={date}
+                          proposals={report.meta.proposals ?? []}
+                        />
+                      )}
+                      {report.google?.checklist && report.google.checklist.length > 0 && (
+                        <ChecklistRevisao
+                          checklist={report.google.checklist}
+                          proposals={report.google.proposals ?? []}
+                        />
+                      )}
                     </div>
                   </details>
                 )}
