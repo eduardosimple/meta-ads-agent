@@ -32,7 +32,7 @@ export function decideAction(p: Proposal, orcamentoMensalCents?: number): Decisi
     const spend = gi.spend ?? 0;
     if (days < PAUSE_MIN_DAYS) return { decision: "skip", reason: `Rodando há ${days}d (<${PAUSE_MIN_DAYS}d) — aguardando maturação.` };
     if (spend < PAUSE_MIN_SPEND) return { decision: "skip", reason: `Gasto R$${spend.toFixed(0)} (<R$${PAUSE_MIN_SPEND}) — pouco dado.` };
-    return { decision: "auto", reason: `Pausar: ${days}d e R$${spend.toFixed(0)} gastos.` };
+    return { decision: "auto", reason: `Pausar anúncio «${p.ad_name}» (campanha «${p.campaign_name}»). ${days}d no ar, R$${spend.toFixed(0)} gastos.` };
   }
 
   if (t === "pause_google_ad_group") {
@@ -51,7 +51,7 @@ export function decideAction(p: Proposal, orcamentoMensalCents?: number): Decisi
         return { decision: "skip", reason: `Novo budget projeta R$${projetadoMes.toFixed(0)}/mês — acima do orçamento.` };
       }
     }
-    return { decision: "auto", reason: `Escalar: R$${spend.toFixed(0)} gastos, dentro do orçamento.` };
+    return { decision: "auto", reason: `Escalar conjunto «${p.adset_name}» (campanha «${p.campaign_name}»). Gasto 7d R$${spend.toFixed(0)}, dentro do orçamento.` };
   }
 
   if (t === "scale_google_campaign") {
@@ -92,7 +92,8 @@ export async function executeAutoActions(client: Client, analysis: AnalysisResul
         const novoCents = p.budget_sugerido_cents ?? a.new_budget_cents;
         const oldCents = Math.round(novoCents / 1.2);
         await updateAdsetBudget(a.adset_id, novoCents, client.meta.access_token);
-        return { ...p, status: "executed" as const, executed_at: nowIso, result_message: reason,
+        const scaleMsg = `Escalar conjunto «${p.adset_name}» de R$${(oldCents / 100).toFixed(0)}→R$${(novoCents / 100).toFixed(0)}/dia (campanha «${p.campaign_name}»). Gasto 7d R$${(p.gate_inputs?.spend ?? 0).toFixed(0)}, dentro do orçamento.`;
+        return { ...p, status: "executed" as const, executed_at: nowIso, result_message: scaleMsg,
           previous_state: { kind: "adset_budget" as const, adset_id: a.adset_id, old_daily_budget_cents: oldCents } };
       }
       if (a.type === "pause_google_ad_group") {
