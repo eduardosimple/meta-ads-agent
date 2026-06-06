@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getReport, saveReport } from "@/lib/reports-store";
 import { getClientBySlug } from "@/lib/clients";
-import { setEntityStatus, updateAdsetBudget } from "@/lib/meta-api";
+import { setEntityStatus, updateAdsetBudget, updateCampaignBudget } from "@/lib/meta-api";
 import {
   setGoogleAdGroupStatus,
   setGoogleCampaignBudgetAmount,
@@ -59,6 +59,9 @@ export async function POST(
     } else if (ps.kind === "adset_budget") {
       if (!client.meta?.access_token) throw new Error("sem token Meta");
       await updateAdsetBudget(ps.adset_id, ps.old_daily_budget_cents, client.meta.access_token);
+    } else if (ps.kind === "campaign_budget") {
+      if (!client.meta?.access_token) throw new Error("sem token Meta");
+      await updateCampaignBudget(ps.campaign_id, ps.old_daily_budget_cents, client.meta.access_token);
     } else if (ps.kind === "google_adgroup_status") {
       if (!client.google) throw new Error("sem credencial Google");
       await setGoogleAdGroupStatus(client.google, ps.ad_group_id, "ENABLED");

@@ -54,7 +54,7 @@ export type ProposalVerdict = "escalar" | "manter" | "testar_variacao" | "ajusta
 export type ProposalAction =
   | { type: "pause_ad"; ad_id: string }
   | { type: "pause_adset"; adset_id: string }
-  | { type: "scale_budget"; adset_id: string; new_budget_cents: number }
+  | { type: "scale_budget"; adset_id: string; new_budget_cents: number; campaign_id?: string }
   | { type: "update_adset_targeting"; adset_id: string; targeting: Record<string, unknown>; targeting_summary_new: string }
   | { type: "create_adset"; campaign_id: string; adset_name: string; targeting: Record<string, unknown>; optimization_goal: string; bid_strategy?: string; daily_budget_cents?: number; targeting_summary_new: string }
   | { type: "pause_google_ad_group"; ad_group_id: string; customer_id: string }
@@ -86,6 +86,7 @@ export interface Proposal {
   previous_state?:
     | { kind: "ad_status"; ad_id: string; old: "ACTIVE" | "PAUSED" }
     | { kind: "adset_budget"; adset_id: string; old_daily_budget_cents: number }
+    | { kind: "campaign_budget"; campaign_id: string; old_daily_budget_cents: number }
     | { kind: "google_adgroup_status"; ad_group_id: string; customer_id: string; old: "ENABLED" | "PAUSED" }
     | { kind: "google_campaign_budget"; campaign_id: string; customer_id: string; old_budget_reais: number };
   /** Inputs para os gates da metodologia 12345 (preenchidos na análise). */

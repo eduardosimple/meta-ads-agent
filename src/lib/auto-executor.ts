@@ -1,7 +1,7 @@
 import type { Proposal, ProposalAction } from "@/types/metrics";
 import type { AnalysisResult } from "@/types/metrics";
 import type { Client } from "@/types/client";
-import { pauseEntity, updateAdsetBudget } from "./meta-api";
+import { pauseEntity, updateAdsetBudget, getCampaignDailyBudgetCents, updateCampaignBudget } from "./meta-api";
 import { pauseGoogleAdGroup, scaleGoogleCampaignBudget } from "./google-ads-api";
 
 const PAUSE_MIN_DAYS = 4;
@@ -89,10 +89,26 @@ export async function executeAutoActions(client: Client, analysis: AnalysisResul
       }
       if (a.type === "scale_budget") {
         if (!client.meta?.access_token) throw new Error("sem token Meta");
+        const tok = client.meta.access_token;
+        const spend7 = (p.gate_inputs?.spend ?? 0).toFixed(0);
+        // CBO: se a campanha tem orçamento próprio, o conjunto NÃO aceita budget
+        // (Meta subcode 1885621). Escala a CAMPANHA — é onde o budget mora sob CBO.
+        const campOldCents = a.campaign_id ? await getCampaignDailyBudgetCents(a.campaign_id, tok) : null;
+        if (a.campaign_id && campOldCents) {
+          const campNovoCents = Math.round(campOldCents * 1.2);
+          if (orcamento && campNovoCents * DAYS_IN_MONTH > orcamento) {
+            return { ...p, status: "skipped_gate" as const,
+              result_message: `Escalar campanha «${p.campaign_name}» (CBO) projetaria R$${((campNovoCents / 100) * DAYS_IN_MONTH).toFixed(0)}/mês — acima do orçamento. Adiado.` };
+          }
+          await updateCampaignBudget(a.campaign_id, campNovoCents, tok);
+          return { ...p, status: "executed" as const, executed_at: nowIso,
+            result_message: `Escalar campanha «${p.campaign_name}» (CBO) de R$${(campOldCents / 100).toFixed(0)}→R$${(campNovoCents / 100).toFixed(0)}/dia. Gasto 7d R$${spend7}, dentro do orçamento.`,
+            previous_state: { kind: "campaign_budget" as const, campaign_id: a.campaign_id, old_daily_budget_cents: campOldCents } };
+        }
         const novoCents = p.budget_sugerido_cents ?? a.new_budget_cents;
         const oldCents = Math.round(novoCents / 1.2);
-        await updateAdsetBudget(a.adset_id, novoCents, client.meta.access_token);
-        const scaleMsg = `Escalar conjunto «${p.adset_name}» de R$${(oldCents / 100).toFixed(0)}→R$${(novoCents / 100).toFixed(0)}/dia (campanha «${p.campaign_name}»). Gasto 7d R$${(p.gate_inputs?.spend ?? 0).toFixed(0)}, dentro do orçamento.`;
+        await updateAdsetBudget(a.adset_id, novoCents, tok);
+        const scaleMsg = `Escalar conjunto «${p.adset_name}» de R$${(oldCents / 100).toFixed(0)}→R$${(novoCents / 100).toFixed(0)}/dia (campanha «${p.campaign_name}»). Gasto 7d R$${spend7}, dentro do orçamento.`;
         return { ...p, status: "executed" as const, executed_at: nowIso, result_message: scaleMsg,
           previous_state: { kind: "adset_budget" as const, adset_id: a.adset_id, old_daily_budget_cents: oldCents } };
       }

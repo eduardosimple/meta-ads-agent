@@ -103,6 +103,35 @@ export async function updateCampaignStatus(
   return true;
 }
 
+/** Orçamento diário (cents) da campanha, se ela tiver budget próprio (CBO).
+ *  Retorna null quando a campanha NÃO tem budget (orçamento está nos conjuntos). */
+export async function getCampaignDailyBudgetCents(
+  campaignId: string,
+  accessToken: string
+): Promise<number | null> {
+  const d = await metaFetch<{ daily_budget?: string; lifetime_budget?: string }>(
+    `/${campaignId}?fields=daily_budget,lifetime_budget&access_token=${encodeURIComponent(accessToken)}`
+  );
+  if (d.daily_budget) return parseInt(d.daily_budget, 10);
+  return null;
+}
+
+/** Atualiza o orçamento diário (cents) de uma campanha CBO. */
+export async function updateCampaignBudget(
+  campaignId: string,
+  dailyBudgetCents: number,
+  accessToken: string
+): Promise<boolean> {
+  await metaFetch<{ success: boolean }>(`/${campaignId}`, {
+    method: "POST",
+    body: JSON.stringify({
+      daily_budget: String(dailyBudgetCents),
+      access_token: accessToken,
+    }),
+  });
+  return true;
+}
+
 export async function getAdInsights(
   adAccountId: string,
   accessToken: string,
