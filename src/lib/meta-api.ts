@@ -27,31 +27,42 @@ async function metaFetch<T>(
   return data as T;
 }
 
-// Busca TODAS as páginas de um endpoint que devolve { data, paging.next }.
-// Resiliente ao "please reduce the amount of data" (contas grandes, ex: insights
-// level=ad com `actions`): reduz o limit pela metade e recomeça, até conseguir.
-// Sem isso, contas grandes (ex: FAMEX, 145+ anúncios) voltavam ad_metrics vazio.
+// Busca TODAS as páginas de um endpoint { data, paging.next }, robusto p/ contas grandes:
+//  - RETRY com backoff em falha transitória (rate-limit/erro pontual da madrugada — a
+//    causa real do ad_metrics_lite vir vazio no run noturno concentrado).
+//  - reduz o limit no "please reduce the amount of data".
+//  - só segue p/ próxima página se a atual veio CHEIA (batch>=limit). Seguir o cursor
+//    `next` numa página incompleta batia numa página inválida e derrubava tudo.
 async function fetchAllPages<R>(buildUrl: (limit: number) => string, startLimit = 200): Promise<R[]> {
-  for (let limit = startLimit; limit >= 20; limit = Math.floor(limit / 2)) {
-    try {
-      const rows: R[] = [];
-      let url: string | null = buildUrl(limit);
-      let guard = 0;
-      while (url && guard++ < 100) {
-        const page: { data?: R[]; paging?: { next?: string } } =
-          await metaFetch<{ data?: R[]; paging?: { next?: string } }>(url);
-        if (page.data) rows.push(...page.data);
-        const next = page.paging?.next;
-        url = next ? next.replace(META_API_BASE, "") : null;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    for (let limit = startLimit; limit >= 25; limit = Math.floor(limit / 2)) {
+      try {
+        const rows: R[] = [];
+        let url: string | null = buildUrl(limit);
+        let guard = 0;
+        while (url && guard++ < 60) {
+          const page: { data?: R[]; paging?: { next?: string } } =
+            await metaFetch<{ data?: R[]; paging?: { next?: string } }>(url);
+          const batch = page.data ?? [];
+          rows.push(...batch);
+          // só pagina se a página veio cheia (senão já temos tudo — evita next inválido)
+          url = (batch.length >= limit && page.paging?.next)
+            ? page.paging.next.replace(META_API_BASE, "")
+            : null;
+        }
+        return rows;
+      } catch (e) {
+        lastErr = e;
+        if (/reduce the amount of data/i.test(String((e as Error)?.message ?? "")) && limit > 25) {
+          continue; // mesma tentativa, limit menor
+        }
+        break; // erro transitório → quebra o loop de limit p/ ir ao retry externo
       }
-      return rows;
-    } catch (e) {
-      const msg = String((e as Error)?.message ?? "");
-      if (/reduce the amount of data/i.test(msg) && limit > 20) continue; // tenta limit menor
-      throw e;
     }
+    if (attempt < 2) await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
   }
-  return [];
+  throw lastErr instanceof Error ? lastErr : new Error("fetchAllPages falhou");
 }
 
 export async function validateToken(accessToken: string): Promise<boolean> {
