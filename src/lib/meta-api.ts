@@ -27,6 +27,33 @@ async function metaFetch<T>(
   return data as T;
 }
 
+// Busca TODAS as páginas de um endpoint que devolve { data, paging.next }.
+// Resiliente ao "please reduce the amount of data" (contas grandes, ex: insights
+// level=ad com `actions`): reduz o limit pela metade e recomeça, até conseguir.
+// Sem isso, contas grandes (ex: FAMEX, 145+ anúncios) voltavam ad_metrics vazio.
+async function fetchAllPages<R>(buildUrl: (limit: number) => string, startLimit = 200): Promise<R[]> {
+  for (let limit = startLimit; limit >= 20; limit = Math.floor(limit / 2)) {
+    try {
+      const rows: R[] = [];
+      let url: string | null = buildUrl(limit);
+      let guard = 0;
+      while (url && guard++ < 100) {
+        const page: { data?: R[]; paging?: { next?: string } } =
+          await metaFetch<{ data?: R[]; paging?: { next?: string } }>(url);
+        if (page.data) rows.push(...page.data);
+        const next = page.paging?.next;
+        url = next ? next.replace(META_API_BASE, "") : null;
+      }
+      return rows;
+    } catch (e) {
+      const msg = String((e as Error)?.message ?? "");
+      if (/reduce the amount of data/i.test(msg) && limit > 20) continue; // tenta limit menor
+      throw e;
+    }
+  }
+  return [];
+}
+
 export async function validateToken(accessToken: string): Promise<boolean> {
   try {
     await metaFetch<{ id: string }>(
@@ -139,38 +166,36 @@ export async function getAdInsights(
   dateTo: string
 ): Promise<AdMetrics[]> {
   const fields = "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,impressions,clicks,spend,reach,ctr,cpc,cpm,frequency,actions";
-  const data = await metaFetch<{
-    data: Array<{
-      ad_id: string;
-      ad_name: string;
-      adset_id: string;
-      adset_name: string;
-      campaign_id: string;
-      campaign_name: string;
-      impressions?: string;
-      clicks?: string;
-      spend?: string;
-      reach?: string;
-      ctr?: string;
-      cpc?: string;
-      cpm?: string;
-      frequency?: string;
-      actions?: Array<{ action_type: string; value: string }>;
-    }>;
+  // Paginado + resiliente: contas grandes (FAMEX) estouravam "reduce the amount
+  // of data" e voltavam vazio. fetchAllPages reduz o limit e pagina até conseguir.
+  const insightRows = await fetchAllPages<{
+    ad_id: string;
+    ad_name: string;
+    adset_id: string;
+    adset_name: string;
+    campaign_id: string;
+    campaign_name: string;
+    impressions?: string;
+    clicks?: string;
+    spend?: string;
+    reach?: string;
+    ctr?: string;
+    cpc?: string;
+    cpm?: string;
+    frequency?: string;
+    actions?: Array<{ action_type: string; value: string }>;
   }>(
-    `/${adAccountId}/insights?fields=${fields}&time_range={"since":"${dateFrom}","until":"${dateTo}"}&level=ad&access_token=${encodeURIComponent(accessToken)}&limit=200`
+    (limit) => `/${adAccountId}/insights?fields=${fields}&time_range={"since":"${dateFrom}","until":"${dateTo}"}&level=ad&access_token=${encodeURIComponent(accessToken)}&limit=${limit}`
   );
 
-  // Also fetch ad statuses
-  const adsData = await metaFetch<{
-    data: Array<{ id: string; name: string; status: string; created_time: string; adset_id: string }>;
-  }>(
-    `/${adAccountId}/ads?fields=id,name,status,created_time,adset_id&access_token=${encodeURIComponent(accessToken)}&limit=200`
+  // Status dos ads — paginado (conta pode ter >200 ads; antes faltava status).
+  const adsRows = await fetchAllPages<{ id: string; name: string; status: string; created_time: string; adset_id: string }>(
+    (limit) => `/${adAccountId}/ads?fields=id,name,status,created_time,adset_id&access_token=${encodeURIComponent(accessToken)}&limit=${limit}`
   );
 
-  const adStatusMap = new Map(adsData.data.map(a => [a.id, { status: a.status, created_time: a.created_time }]));
+  const adStatusMap = new Map(adsRows.map(a => [a.id, { status: a.status, created_time: a.created_time }]));
 
-  return (data.data ?? []).map((item) => {
+  return insightRows.map((item) => {
     const leads = item.actions?.find((a) => a.action_type === "lead")?.value ?? "0";
     const whatsappConvs = item.actions?.find((a) =>
       a.action_type === "onsite_conversion.messaging_conversation_started_7d" ||
