@@ -174,8 +174,9 @@ AÇÕES DO CHECKLIST (ordem fixa):
    - SE alguma sem veiculação → status="atencao", resumo="X de N sem veiculação", sub_acoes[] com campanha + causa provável + solução proposta.
 
 2. "Verificar se existem criativos ou públicos com CPA muito acima da média e pausar"
-   - SE nenhum CPA absurdo (≥3× benchmark + spend ≥R$50 + 4+ dias) → status="check".
-   - SE houver → status="atencao", sub_acoes[] = lista de ads pra pausar com {ad_id, adset_id (SEMPRE, o conjunto do ad), ad_name, cpl_atual, motivo, sugestao_novo_criativo, sugestao_novo_publico, action:{type:"pause_ad", ad_id}}.
+   - Considere SOMENTE ads com status ACTIVE (não se pausa o que já está PAUSED).
+   - SE nenhum ACTIVE com CPA absurdo (≥3× benchmark + spend ≥R$50 + 4+ dias) → status="check".
+   - SE houver → status="atencao", sub_acoes[] = lista de ads ACTIVE pra pausar com {ad_id, adset_id (SEMPRE, o conjunto do ad), ad_name, cpl_atual, motivo, sugestao_novo_criativo, sugestao_novo_publico, action:{type:"pause_ad", ad_id}}.
    - A pausa É a ação (executada pelo portal), não só recomendação: SEMPRE preencha action.type="pause_ad" e adset_id em cada sub_acao desta ação.
 
 3. "Subir criativos enviados pelo cliente"
@@ -184,6 +185,7 @@ AÇÕES DO CHECKLIST (ordem fixa):
 
 4. "Verificar se as campanhas com mais performance estão recebendo o maior investimento (realocar 20%/20%)"
    - SE balanceamento ok (top performers já têm mais budget proporcionalmente) → status="check".
+   - Considere SOMENTE conjuntos ATIVOS (não realoque verba de/para conjunto PAUSED).
    - SE houver desbalanceamento → status="atencao", sub_acoes[] = realocações sugeridas {adset_id, adset_name, daily_budget_atual, daily_budget_sugerido, motivo}. Apenas ±20% por adset por dia. Respeitar orçamento mensal.
 
 5. "Garantir pelo menos 4 criativos ativos por conjunto de anúncios"
@@ -196,6 +198,7 @@ REGRAS:
 - Papel ads: apenas manter | escalar | pausar.
 - NÃO preencher publicos[] / nova_estrutura / copy_sugerida — isso é semanal/mensal.
 - Proposals tradicionais (proposals[]) derive APENAS dos sub_acoes da ação 2 (pausar) + ação 4 (escalar). 1:1.
+- SÓ ENTIDADES ATIVAS VIRAM AÇÃO. Campanha/conjunto/anúncio com status PAUSED (ou pausado por qualquer motivo) NUNCA entra em proposals[] nem em sub_acoes de pausar/escalar — não se pausa nem escala o que já está pausado (evita erro "pausar criativo X que já está pausado"). O que está PAUSED serve SOMENTE como APRENDIZADO no resumo/análise (o que funcionou e o que não funcionou) pra embasar sugestão de novo público/criativo em TEXTO, sem action executável.
 - AÇÃO EXECUTÁVEL OBRIGATÓRIA em cada proposal (a UI executa via portal — nunca deixe só texto):
   · Ação 2 → { verdict:"pausar", ad_id:<id do ad>, action:{type:"pause_ad", ad_id:<mesmo id>} }.
   · Ação 4 → { verdict:"escalar", ad_id:<id de um ad do conjunto>, action:{type:"scale_budget", adset_id:<id do conjunto>, new_budget_cents:<INTEIRO em centavos = daily_budget_sugerido×100, OBRIGATÓRIO, JAMAIS null/ausente/0> } }.
