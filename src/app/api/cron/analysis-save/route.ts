@@ -47,9 +47,17 @@ async function attachGateInputs(
     if (platform === "meta" && client.meta?.ad_account_id && client.meta?.access_token) {
       const ads = await getAdInsights(client.meta.ad_account_id, client.meta.access_token, dateFrom, dateTo);
       const byAd = new Map(ads.map(m => [m.ad_id, m]));
+      // Gasto por CONJUNTO (soma dos ads) — o gate de scale_budget é no conjunto,
+      // não num único anúncio. Sem isso o escalar lia o gasto de 1 ad só (R$0) e
+      // caía em "cedo p/ escalar" mesmo em conjunto vencedor.
+      const byAdset = new Map<string, number>();
+      for (const m of ads) byAdset.set(m.adset_id, (byAdset.get(m.adset_id) ?? 0) + m.spend);
       return proposals.map(p => {
         const m = byAd.get(p.ad_id);
-        return { ...p, gate_inputs: { spend: m?.spend ?? 0, days_running: m?.days_running ?? 0 } };
+        const a = p.action;
+        const adsetSpend = a?.type === "scale_budget" && a.adset_id ? (byAdset.get(a.adset_id) ?? 0) : undefined;
+        const spend = adsetSpend !== undefined ? adsetSpend : (m?.spend ?? 0);
+        return { ...p, gate_inputs: { spend, days_running: m?.days_running ?? 0 } };
       });
     }
     if (platform === "google" && client.google) {
