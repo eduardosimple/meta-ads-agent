@@ -308,10 +308,10 @@ export async function getCampaignData(
   dateTo: string
 ): Promise<CampaignData[]> {
   const [campaignsRes, insightsRes] = await Promise.allSettled([
-    metaFetch<{ data: Array<{ id: string; name: string; status: string; objective: string; daily_budget?: string; lifetime_budget?: string }> }>(
+    metaFetchRetry<{ data: Array<{ id: string; name: string; status: string; objective: string; daily_budget?: string; lifetime_budget?: string }> }>(
       `/${adAccountId}/campaigns?fields=id,name,status,objective,daily_budget,lifetime_budget&access_token=${encodeURIComponent(accessToken)}&limit=200`
     ),
-    metaFetch<{ data: Array<{ campaign_id: string; campaign_name: string; impressions?: string; clicks?: string; spend?: string; ctr?: string; actions?: Array<{ action_type: string; value: string }> }> }>(
+    metaFetchRetry<{ data: Array<{ campaign_id: string; campaign_name: string; impressions?: string; clicks?: string; spend?: string; ctr?: string; actions?: Array<{ action_type: string; value: string }> }> }>(
       `/${adAccountId}/insights?fields=campaign_id,campaign_name,impressions,clicks,spend,ctr,actions&time_range={"since":"${dateFrom}","until":"${dateTo}"}&level=campaign&access_token=${encodeURIComponent(accessToken)}&limit=200`
     ),
   ]);
@@ -349,10 +349,10 @@ export async function getAdsetData(
   dateTo: string
 ): Promise<AdsetData[]> {
   const [adsetsRes, insightsRes] = await Promise.allSettled([
-    metaFetch<{ data: Array<{ id: string; name: string; status: string; campaign_id: string; daily_budget?: string; optimization_goal: string; bid_strategy?: string; targeting?: Record<string, unknown> }> }>(
+    metaFetchRetry<{ data: Array<{ id: string; name: string; status: string; campaign_id: string; daily_budget?: string; optimization_goal: string; bid_strategy?: string; targeting?: Record<string, unknown> }> }>(
       `/${adAccountId}/adsets?fields=id,name,status,campaign_id,daily_budget,optimization_goal,bid_strategy,targeting&access_token=${encodeURIComponent(accessToken)}&limit=200`
     ),
-    metaFetch<{ data: Array<{ adset_id: string; adset_name: string; campaign_id: string; campaign_name: string; impressions?: string; clicks?: string; spend?: string; ctr?: string; actions?: Array<{ action_type: string; value: string }> }> }>(
+    metaFetchRetry<{ data: Array<{ adset_id: string; adset_name: string; campaign_id: string; campaign_name: string; impressions?: string; clicks?: string; spend?: string; ctr?: string; actions?: Array<{ action_type: string; value: string }> }> }>(
       `/${adAccountId}/insights?fields=adset_id,adset_name,campaign_id,campaign_name,impressions,clicks,spend,ctr,actions&time_range={"since":"${dateFrom}","until":"${dateTo}"}&level=adset&access_token=${encodeURIComponent(accessToken)}&limit=200`
     ),
   ]);
@@ -392,7 +392,7 @@ export async function getCustomAudiences(
   accessToken: string
 ): Promise<CustomAudience[]> {
   try {
-    const data = await metaFetch<{ data: CustomAudience[] }>(
+    const data = await metaFetchRetry<{ data: CustomAudience[] }>(
       `/${adAccountId}/customaudiences?fields=id,name,subtype,approximate_count_lower_bound&access_token=${encodeURIComponent(accessToken)}&limit=200`
     );
     return data.data ?? [];
