@@ -27,42 +27,21 @@ async function metaFetch<T>(
   return data as T;
 }
 
-// Busca TODAS as páginas de um endpoint { data, paging.next }, robusto p/ contas grandes:
-//  - RETRY com backoff em falha transitória (rate-limit/erro pontual da madrugada — a
-//    causa real do ad_metrics_lite vir vazio no run noturno concentrado).
-//  - reduz o limit no "please reduce the amount of data".
-//  - só segue p/ próxima página se a atual veio CHEIA (batch>=limit). Seguir o cursor
-//    `next` numa página incompleta batia numa página inválida e derrubava tudo.
-async function fetchAllPages<R>(buildUrl: (limit: number) => string, startLimit = 200): Promise<R[]> {
+// metaFetch com RETRY + backoff. O único endurecimento necessário: o ad_metrics_lite
+// vinha vazio no run noturno concentrado por falha TRANSITÓRIA (rate-limit/erro pontual)
+// na chamada de insights. Retry resolve sem mudar o caminho de sucesso (chamada única).
+// (NÃO paginar o /ads: a FAMEX tem 1200+ ads e isso virava dezenas de chamadas e quebrava.)
+async function metaFetchRetry<T>(endpoint: string, attempts = 3): Promise<T> {
   let lastErr: unknown;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    for (let limit = startLimit; limit >= 25; limit = Math.floor(limit / 2)) {
-      try {
-        const rows: R[] = [];
-        let url: string | null = buildUrl(limit);
-        let guard = 0;
-        while (url && guard++ < 60) {
-          const page: { data?: R[]; paging?: { next?: string } } =
-            await metaFetch<{ data?: R[]; paging?: { next?: string } }>(url);
-          const batch = page.data ?? [];
-          rows.push(...batch);
-          // só pagina se a página veio cheia (senão já temos tudo — evita next inválido)
-          url = (batch.length >= limit && page.paging?.next)
-            ? page.paging.next.replace(META_API_BASE, "")
-            : null;
-        }
-        return rows;
-      } catch (e) {
-        lastErr = e;
-        if (/reduce the amount of data/i.test(String((e as Error)?.message ?? "")) && limit > 25) {
-          continue; // mesma tentativa, limit menor
-        }
-        break; // erro transitório → quebra o loop de limit p/ ir ao retry externo
-      }
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await metaFetch<T>(endpoint);
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
     }
-    if (attempt < 2) await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
   }
-  throw lastErr instanceof Error ? lastErr : new Error("fetchAllPages falhou");
+  throw lastErr instanceof Error ? lastErr : new Error("metaFetch falhou após retries");
 }
 
 export async function validateToken(accessToken: string): Promise<boolean> {
@@ -177,36 +156,46 @@ export async function getAdInsights(
   dateTo: string
 ): Promise<AdMetrics[]> {
   const fields = "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,impressions,clicks,spend,reach,ctr,cpc,cpm,frequency,actions";
-  // Paginado + resiliente: contas grandes (FAMEX) estouravam "reduce the amount
-  // of data" e voltavam vazio. fetchAllPages reduz o limit e pagina até conseguir.
-  const insightRows = await fetchAllPages<{
-    ad_id: string;
-    ad_name: string;
-    adset_id: string;
-    adset_name: string;
-    campaign_id: string;
-    campaign_name: string;
-    impressions?: string;
-    clicks?: string;
-    spend?: string;
-    reach?: string;
-    ctr?: string;
-    cpc?: string;
-    cpm?: string;
-    frequency?: string;
-    actions?: Array<{ action_type: string; value: string }>;
+  // Chamada única (limit=200 cobre os anúncios COM entrega) + RETRY p/ falha transitória
+  // do run noturno — a causa real do ad_metrics_lite vir vazio. (Não paginar: a conta tem
+  // milhares de ads históricos e paginar o /ads quebrava/atrasava tudo.)
+  const data = await metaFetchRetry<{
+    data?: Array<{
+      ad_id: string;
+      ad_name: string;
+      adset_id: string;
+      adset_name: string;
+      campaign_id: string;
+      campaign_name: string;
+      impressions?: string;
+      clicks?: string;
+      spend?: string;
+      reach?: string;
+      ctr?: string;
+      cpc?: string;
+      cpm?: string;
+      frequency?: string;
+      actions?: Array<{ action_type: string; value: string }>;
+    }>;
   }>(
-    (limit) => `/${adAccountId}/insights?fields=${fields}&time_range={"since":"${dateFrom}","until":"${dateTo}"}&level=ad&access_token=${encodeURIComponent(accessToken)}&limit=${limit}`
+    `/${adAccountId}/insights?fields=${fields}&time_range={"since":"${dateFrom}","until":"${dateTo}"}&level=ad&access_token=${encodeURIComponent(accessToken)}&limit=200`
   );
 
-  // Status dos ads — paginado (conta pode ter >200 ads; antes faltava status).
-  const adsRows = await fetchAllPages<{ id: string; name: string; status: string; created_time: string; adset_id: string }>(
-    (limit) => `/${adAccountId}/ads?fields=id,name,status,created_time,adset_id&access_token=${encodeURIComponent(accessToken)}&limit=${limit}`
-  );
+  // Status dos ads — chamada única (não-essencial; falha vira mapa vazio = status UNKNOWN,
+  // sem derrubar o ad_metrics_lite). Envolvido em try/catch por segurança.
+  let adStatusMap = new Map<string, { status: string; created_time: string }>();
+  try {
+    const adsData = await metaFetchRetry<{
+      data?: Array<{ id: string; name: string; status: string; created_time: string; adset_id: string }>;
+    }>(
+      `/${adAccountId}/ads?fields=id,name,status,created_time,adset_id&access_token=${encodeURIComponent(accessToken)}&limit=200`
+    );
+    adStatusMap = new Map((adsData.data ?? []).map(a => [a.id, { status: a.status, created_time: a.created_time }]));
+  } catch {
+    // status é opcional — segue sem ele
+  }
 
-  const adStatusMap = new Map(adsRows.map(a => [a.id, { status: a.status, created_time: a.created_time }]));
-
-  return insightRows.map((item) => {
+  return (data.data ?? []).map((item) => {
     const leads = item.actions?.find((a) => a.action_type === "lead")?.value ?? "0";
     const whatsappConvs = item.actions?.find((a) =>
       a.action_type === "onsite_conversion.messaging_conversation_started_7d" ||
